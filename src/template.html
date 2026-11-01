@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>The Hollow Crown — Lantern of the Deep (3D)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#efe6d4; --ink2:#a89c86; --gold:#e8c878; --amber:#ff9f42; --red:#c8503c; --panel:rgba(14,11,10,.72); --edge:rgba(232,200,120,.2);
+    --f:'Chakra Petch','Arial Narrow',system-ui,sans-serif; --serif:'Cinzel',Georgia,serif; }
+  html, body { margin:0; height:100%; background:#000; overflow:hidden; overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none; touch-action:none; color:var(--ink); font-family:var(--f); }
+  #stage canvas { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  #stage.px canvas { image-rendering:pixelated; image-rendering:crisp-edges; }
+  .hidden { display:none !important; }
+  button { font-family:var(--f); cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  #vignette, #danger, #hurtfx, #flashfx { position:fixed; inset:0; pointer-events:none; }
+  #vignette { background:radial-gradient(ellipse at 50% 55%, transparent 52%, rgba(0,0,0,.55) 100%); }
+  #danger { background:radial-gradient(ellipse at center, transparent 45%, rgba(110,20,10,.55) 100%); opacity:0; }
+  #hurtfx { background:radial-gradient(ellipse at center, rgba(160,30,20,.15) 30%, rgba(160,30,20,.6) 100%); opacity:0; }
+  #flashfx { background:#fff1d8; opacity:0; }
+  #cross { position:fixed; left:50%; top:50%; width:4px; height:4px; margin:-2px 0 0 -2px; border-radius:50%; background:rgba(239,230,212,.45); pointer-events:none; }
+
+  /* ---- HUD: the Crown's panel ---- */
+  #hud { position:fixed; inset:0; pointer-events:none; }
+  #panel { position:absolute; left:max(12px,env(safe-area-inset-left)); top:max(10px,env(safe-area-inset-top)); width:250px; padding:9px 11px 10px; background:var(--panel);
+    border:1px solid var(--edge); border-radius:8px; box-shadow:0 0 0 1px rgba(0,0,0,.6) inset; }
+  #region { display:flex; justify-content:space-between; font:700 12px/1 var(--serif); letter-spacing:.14em; color:var(--gold); margin-bottom:8px; }
+  .bar { position:relative; height:7px; margin:5px 34px 0 20px; background:#1c1612; border-radius:2px; overflow:hidden; }
+  .bar i { position:absolute; inset:0; width:100%; transform-origin:left; }
+  #hpBar i { background:linear-gradient(90deg,#8a2a22,#d8604a); }
+  #oilBar i { background:linear-gradient(90deg,#a8641a,#ffc060); }
+  .barRow { position:relative; }
+  .barRow b { position:absolute; left:0; top:-2px; font:700 11px/1 var(--f); color:var(--ink2); width:14px; text-align:center; }
+  .barRow span { position:absolute; right:0; top:-1px; width:30px; text-align:right; font:600 10px/1 var(--f); color:var(--ink2); font-variant-numeric:tabular-nums; }
+  #oilRow.low #oilBar i { animation:blink .5s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:.35 } }
+  #stanceRow { display:flex; align-items:center; justify-content:space-between; margin-top:9px; }
+  #stance { display:flex; align-items:center; gap:4px; font:700 12px/1 var(--f); letter-spacing:.14em; color:var(--ink); }
+  #stance .fl { width:7px; height:11px; border-radius:50% 50% 45% 45%/60% 60% 40% 40%; background:#3a2e20; }
+  #stance .fl.on { background:radial-gradient(circle at 50% 70%, #fff3c8, #ffa640 60%, #b04a10); box-shadow:0 0 6px #ff9a40; }
+  #cds { display:flex; gap:5px; }
+  .cd { position:relative; width:22px; height:22px; border-radius:50%; border:1px solid rgba(140,220,200,.45); color:#9adcc8; font:700 10px/22px var(--f); text-align:center; }
+  .cd::after { content:""; position:absolute; inset:-1px; border-radius:50%; background:conic-gradient(rgba(0,0,0,.7) calc(var(--cd,0)*360deg), transparent 0); }
+  .cd.off { color:#5a6460; border-color:rgba(140,140,140,.3); }
+  #mapBox { position:absolute; right:max(12px,env(safe-area-inset-right)); top:max(10px,env(safe-area-inset-top)); padding:6px; background:var(--panel); border:1px solid var(--edge); border-radius:8px; text-align:right; }
+  #map { width:118px; height:118px; display:block; image-rendering:pixelated; }
+  #mood { margin-top:5px; font:700 11px/1 var(--f); letter-spacing:.16em; color:var(--ink2); }
+  #voice { position:absolute; left:50%; bottom:max(22px,env(safe-area-inset-bottom)); transform:translateX(-50%); max-width:min(80vw,760px); display:flex; gap:10px; align-items:center;
+    font:600 18px/1.35 var(--f); color:#f2e2b8; text-shadow:0 0 12px rgba(255,170,80,.35), 0 2px 2px #000; opacity:0; transition:opacity .4s; }
+  #voice.on { opacity:1; }
+  #voice .flame { flex:none; width:10px; height:15px; border-radius:50% 50% 45% 45%/60% 60% 40% 40%; background:radial-gradient(circle at 50% 70%, #fff3c8, #ffa640 60%, #b04a10); box-shadow:0 0 10px #ff9a40; }
+  #hint { position:absolute; left:50%; bottom:calc(max(22px,env(safe-area-inset-bottom)) + 40px); transform:translateX(-50%); max-width:80vw; text-align:center;
+    font:500 14px/1.4 var(--f); color:var(--ink2); text-shadow:0 2px 2px #000; opacity:0; transition:opacity .4s; }
+  #hint.on { opacity:1; }
+  #prompt { position:absolute; left:50%; top:62%; transform:translateX(-50%); font:700 14px/1 var(--f); letter-spacing:.14em; color:var(--gold); text-shadow:0 2px 3px #000; opacity:0; transition:opacity .2s; }
+  #prompt.on { opacity:1; }
+  #card { position:absolute; left:0; right:0; top:34%; text-align:center; pointer-events:none; opacity:0; transition:opacity 1.2s; }
+  #card.on { opacity:1; }
+  #card .n { font:700 46px/1 var(--serif); color:var(--gold); letter-spacing:.12em; text-shadow:0 0 18px rgba(232,200,120,.35); }
+  #card .t { margin-top:10px; font:500 20px/1 var(--serif); letter-spacing:.3em; color:var(--ink); }
+
+  /* ---- tricks + stats (from Eyeshine) ---- */
+  #stats { position:fixed; right:max(12px,env(safe-area-inset-right)); top:calc(max(10px,env(safe-area-inset-top)) + 160px); font:500 11px/1.45 ui-monospace,Menlo,monospace; color:#cfc7b4;
+    background:rgba(0,0,0,.5); padding:6px 8px; border-radius:6px; text-align:right; pointer-events:none; }
+  #stats b { color:#ffd890; font-weight:600; }
+  #tricksBtn { position:fixed; right:max(12px,env(safe-area-inset-right)); bottom:max(12px,env(safe-area-inset-bottom)); z-index:6; height:32px; padding:0 12px; border-radius:999px;
+    border:1px solid var(--edge); background:var(--panel); color:var(--ink); font:700 11px/1 var(--f); letter-spacing:.12em; }
+  body.touch #tricksBtn { top:calc(max(10px,env(safe-area-inset-top)) + 148px); bottom:auto; }
+  #tricks { position:fixed; right:max(12px,env(safe-area-inset-right)); bottom:calc(max(12px,env(safe-area-inset-bottom)) + 44px); z-index:6; width:min(330px,88vw);
+    max-height:70vh; overflow:auto; padding:12px 14px; background:rgba(14,11,10,.94); border:1px solid var(--edge); border-radius:10px; font:500 13px/1.4 var(--f); }
+  body.touch #tricks { top:calc(max(10px,env(safe-area-inset-top)) + 186px); bottom:auto; }
+  #tricks h3 { margin:0 0 8px; font:700 12px/1 var(--f); letter-spacing:.16em; color:var(--gold); }
+  #tricks label { display:flex; gap:10px; align-items:flex-start; margin:7px 0; cursor:pointer; }
+  #tricks label small { display:block; color:var(--ink2); font-size:11px; }
+  #tricks input { margin-top:3px; accent-color:#e8c878; }
+  #detailSeg { display:flex; gap:4px; margin:8px 0 2px; }
+  #detailSeg button { flex:1; height:28px; border-radius:6px; border:1px solid var(--edge); background:#1a1512; color:var(--ink2); font:700 11px/1 var(--f); letter-spacing:.08em; }
+  #detailSeg button.on { background:#3a2e1a; color:var(--gold); border-color:rgba(232,200,120,.6); }
+  #xray { position:fixed; left:max(12px,env(safe-area-inset-left)); top:calc(max(10px,env(safe-area-inset-top)) + 130px); width:200px; height:200px; border-radius:50%; pointer-events:none; }
+
+  /* ---- touch controls: stick on the left, the Crown's six buttons on the right ---- */
+  #touchUI { position:fixed; inset:0; pointer-events:none; }
+  #joyBase { position:fixed; width:110px; height:110px; margin:-55px 0 0 -55px; border-radius:50%; border:1px solid var(--edge); background:rgba(20,16,12,.35); opacity:0; transition:opacity .15s; }
+  #joyBase.on { opacity:1; }
+  #joyKnob { position:absolute; left:50%; top:50%; width:44px; height:44px; margin:-22px 0 0 -22px; border-radius:50%; background:radial-gradient(circle at 40% 32%,#fff0c0,#c49832 62%,#4a3008); }
+  #joyHint { position:fixed; left:max(18px,env(safe-area-inset-left)); bottom:max(18px,env(safe-area-inset-bottom)); font:600 11px/1.3 var(--f); color:var(--ink2); letter-spacing:.08em; }
+  #acts { position:fixed; right:max(14px,env(safe-area-inset-right)); bottom:max(14px,env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(3,58px); gap:8px; pointer-events:auto; }
+  .ab { position:relative; overflow:hidden; width:58px; height:58px; border-radius:12px; border:1px solid var(--edge); background:var(--panel); color:#e8d8b0; font:700 10px/1 var(--f);
+    letter-spacing:.08em; text-transform:uppercase; padding:0; touch-action:none; }
+  .ab::after { content:""; position:absolute; inset:0; background:conic-gradient(rgba(0,0,0,.62) calc(var(--cd,0)*360deg), transparent 0); pointer-events:none; }
+  .ab.big { background:radial-gradient(ellipse at 50% 30%, rgba(232,190,100,.4), var(--panel) 75%); border-color:rgba(232,200,120,.6); font-size:12px; }
+  #bFlare { border-color:rgba(255,159,66,.55); background:radial-gradient(circle at 50% 34%, rgba(255,159,66,.32), var(--panel) 74%); }
+  #bPulse { border-color:rgba(150,190,230,.5); background:radial-gradient(circle at 50% 34%, rgba(150,190,230,.28), var(--panel) 74%); }
+  .ab.on { filter:brightness(1.5); }
+
+  /* ---- menus ---- */
+  .screen { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; gap:14px;
+    background:radial-gradient(ellipse at 50% 60%, rgba(0,0,0,.15), rgba(0,0,0,.7)); z-index:5; }
+  .kicker { font:600 12px/1 var(--f); letter-spacing:.42em; color:var(--ink2); }
+  .title { font:700 clamp(34px,7vw,72px)/1 var(--serif); letter-spacing:.08em; color:var(--gold); text-shadow:0 0 30px rgba(232,180,90,.35); margin:0; }
+  .sub { font:500 clamp(14px,2.4vw,20px)/1.2 var(--serif); letter-spacing:.32em; color:var(--ink); }
+  .floor { font:600 13px/1.5 var(--f); letter-spacing:.2em; color:var(--amber); }
+  .go { margin-top:10px; height:48px; padding:0 30px; border-radius:999px; border:1px solid rgba(232,200,120,.6); background:rgba(40,30,16,.8); color:var(--gold); font:700 15px/1 var(--f); letter-spacing:.24em; }
+  .go:hover { background:rgba(70,50,24,.9); }
+  .ctrl { max-width:560px; font:500 13px/1.6 var(--f); color:var(--ink2); }
+  #endStats { font:500 15px/1.7 var(--f); color:var(--ink); }
+  #endSub { letter-spacing:.08em; }
+  #pauseOv { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:4; font:700 16px/1.6 var(--f); letter-spacing:.2em; color:var(--gold); text-align:center; }
+  @media (max-height:500px) {
+    #panel { width:190px; padding:6px 8px 7px; }
+    #region { font-size:10px; margin-bottom:5px; }
+    #stanceRow { margin-top:6px; } #stance { font-size:10px; } .cd { width:18px; height:18px; font-size:9px; line-height:18px; }
+    #map { width:72px; height:72px; } #mood { font-size:9px; margin-top:3px; }
+    body.touch #tricksBtn { top:calc(max(8px,env(safe-area-inset-top)) + 100px); height:26px; font-size:10px; }
+    body.touch #tricks { top:calc(max(8px,env(safe-area-inset-top)) + 132px); max-height:62vh; }
+    #stats { top:calc(max(8px,env(safe-area-inset-top)) + 132px); font-size:9px; padding:4px 6px; }
+    #voice { font-size:14px; max-width:46vw; bottom:max(10px,env(safe-area-inset-bottom)); }
+    #hint { font-size:12px; bottom:calc(max(10px,env(safe-area-inset-bottom)) + 40px); max-width:46vw; }
+    #acts { grid-template-columns:repeat(3,50px); gap:6px; } .ab { width:50px; height:50px; font-size:9px; }
+    #card .n { font-size:30px; } #card .t { font-size:14px; } #joyHint { font-size:9px; }
+    .title { font-size:clamp(28px,6vw,54px); } .screen { gap:9px; }
+  }
+  @media (max-width:640px) { #panel { width:200px; } #map { width:90px; height:90px; } #voice { font-size:15px; } #card .n { font-size:34px; } }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="vignette"></div>
+<div id="danger"></div>
+<div id="hurtfx"></div>
+<div id="flashfx"></div>
+
+<div id="hud" class="hidden">
+  <div id="cross"></div>
+  <div id="panel">
+    <div id="region"><span id="regionName">THE DEEP WOODS</span><span>III</span></div>
+    <div class="barRow"><b>♥</b><span id="hpNum">100</span><div class="bar" id="hpBar"><i></i></div></div>
+    <div class="barRow" id="oilRow" style="margin-top:9px"><b>🜂</b><span id="oilNum">100</span><div class="bar" id="oilBar"><i></i></div></div>
+    <div id="stanceRow">
+      <div id="stance"><i class="fl"></i><i class="fl"></i><i class="fl"></i>&nbsp;<span id="stanceName">STEADY</span></div>
+      <div id="cds"><div class="cd" id="cdS">S</div><div class="cd" id="cdD">D</div><div class="cd" id="cdF">F</div><div class="cd" id="cdP">P</div></div>
+    </div>
+  </div>
+  <div id="mapBox"><canvas id="map" width="118" height="118"></canvas><div id="mood">LISTENING</div></div>
+  <div id="card"><div class="n">III</div><div class="t">THE DEEP WOODS</div></div>
+  <div id="prompt"></div>
+  <div id="hint"></div>
+  <div id="voice"><i class="flame"></i><span id="voiceText"></span></div>
+</div>
+
+<canvas id="xray" width="200" height="200" class="hidden"></canvas>
+<div id="stats" class="hidden"></div>
+<button id="tricksBtn" class="hidden" aria-expanded="false">TRICKS</button>
+<div id="tricks" class="hidden">
+  <h3>RENDERING TRICKS</h3>
+  <label><input type="checkbox" data-k="culling"><span>Only draw what light touches<small>Beam-cone culling (plus braziers and flares). Turn it off to see what it saves.</small></span></label>
+  <label><input type="checkbox" data-k="fog"><span>Black fog at the beam's edge<small>Hides the cut-off, so nothing visibly pops in.</small></span></label>
+  <label><input type="checkbox" data-k="shadows"><span>Lantern shadows<small>One shadow map, aimed where you look. Also carries the lens pattern.</small></span></label>
+  <label><input type="checkbox" data-k="proxies"><span>Shadow proxies<small>Detailed trees cast their low-poly shadow.</small></span></label>
+  <label><input type="checkbox" data-k="psx"><span>PS1 mode<small>270p and vertex snapping.</small></span></label>
+  <label><input type="checkbox" data-k="xray"><span>X-ray map<small>Top-down view of what is drawn this frame.</small></span></label>
+  <label><input type="checkbox" data-k="stats"><span>Stats<small>Triangles, draw calls and objects drawn.</small></span></label>
+  <label><input type="checkbox" data-k="debugLight"><span>Lights on (debug)<small>Light the whole world, so you can see what is there.</small></span></label>
+  <label><input type="checkbox" data-k="sound"><span>Sound</span></label>
+  <div style="margin-top:10px;font:700 11px/1 var(--f);letter-spacing:.16em;color:var(--ink2)">DETAIL IN THE BEAM</div>
+  <div id="detailSeg"><button data-d="low">LOW</button><button data-d="high">HIGH</button><button data-d="ultra">ULTRA</button><button data-d="max">MAX</button></div>
+</div>
+
+<div id="touchUI" class="hidden">
+  <div id="joyBase"><div id="joyKnob"></div></div>
+  <div id="joyHint">LEFT THUMB WALKS<br>RIGHT THUMB LOOKS</div>
+  <div id="acts">
+    <button class="ab" id="bLight">Light</button><button class="ab" id="bPulse">Pulse</button><button class="ab" id="bUse">Use</button>
+    <button class="ab" id="bFlare">Flare</button><button class="ab" id="bDash">Dash</button><button class="ab big" id="bSlash">Slash</button>
+  </div>
+</div>
+
+<div id="pauseOv" class="hidden">PAUSED<br><span style="font-size:12px;color:var(--ink2);letter-spacing:.12em">CLICK TO RETURN TO THE DARK</span></div>
+
+<div id="menu" class="screen">
+  <div class="kicker">HYPERDOT ARCADE</div>
+  <h1 class="title">THE HOLLOW CROWN</h1>
+  <div class="sub">LANTERN OF THE DEEP</div>
+  <div class="floor">FLOOR III · THE DEEP WOODS · FIRST PERSON</div>
+  <button class="go" id="startBtn">TAKE UP THE LANTERN</button>
+  <div class="ctrl" id="ctrlText"></div>
+</div>
+
+<div id="end" class="screen hidden">
+  <h1 class="title" id="endTitle">DOWN INTO THE ROOTS</h1>
+  <div class="sub" id="endSub"></div>
+  <div id="endStats"></div>
+  <button class="go" id="againBtn">AGAIN</button>
+</div>
+
+<script>/*__SCRIPT__*/</script>
+</body>
+</html>
