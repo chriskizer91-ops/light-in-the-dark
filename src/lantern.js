@@ -18,9 +18,9 @@ import { THREE, scene, camera, canvasTex, glowTex, GeoBuilder, T, M, col, clamp,
 // =====================================================================
 
 export const MODES = [
-  { key: 'dim', name: 'DIM', mood: 'Hushed', angle: 0.2, penumbra: 0.6, distance: 14, intensity: 95, drain: 0.15, stealth: 0.84, vent: 0.5, level: 0.52 },
-  { key: 'steady', name: 'STEADY', mood: 'Listening', angle: 0.34, penumbra: 0.5, distance: 22, intensity: 230, drain: 0.32, stealth: 1.0, vent: 0.85, level: 0.78 },
-  { key: 'bright', name: 'BRIGHT', mood: 'Hungry', angle: 0.54, penumbra: 0.42, distance: 31, intensity: 440, drain: 0.8, stealth: 1.22, vent: 1.25, level: 1.04 },
+  { key: 'dim', name: 'DIM', mood: 'Hushed', angle: 0.2, penumbra: 0.6, distance: 14, intensity: 40, drain: 0.15, stealth: 0.84, vent: 0.5, level: 0.52 },
+  { key: 'steady', name: 'STEADY', mood: 'Listening', angle: 0.34, penumbra: 0.5, distance: 22, intensity: 82, drain: 0.32, stealth: 1.0, vent: 0.85, level: 0.78 },
+  { key: 'bright', name: 'BRIGHT', mood: 'Hungry', angle: 0.54, penumbra: 0.42, distance: 31, intensity: 138, drain: 0.8, stealth: 1.22, vent: 1.25, level: 1.04 },
 ];
 export const NEAR_R = 3.0; // spill: the lantern's vents leak a little light all around you
 
@@ -52,7 +52,9 @@ const flameMat = new THREE.MeshBasicMaterial({ color: 0xffb860, fog: false, tone
 const view = { lantern: null, lens: null, flame: null, blade: null, bladePivot: null, trail: null, trailMat: null, root: null };
 
 export function createLantern() {
-  const light = new THREE.SpotLight(0xffe2b8, MODES[1].intensity, MODES[1].distance, MODES[1].angle, MODES[1].penumbra, 0.92);
+  // decay 0.55: a flatter falloff than physical, so the beam still reaches the far trees without blowing
+  // out whatever is a metre in front of you (a creature's face at arm's length)
+  const light = new THREE.SpotLight(0xffe2b8, MODES[1].intensity, MODES[1].distance, MODES[1].angle, MODES[1].penumbra, 0.55);
   light.map = cookieTex;
   light.castShadow = true;
   light.shadow.mapSize.set(matchMedia('(pointer: coarse)').matches ? 512 : 1024, matchMedia('(pointer: coarse)').matches ? 512 : 1024);
