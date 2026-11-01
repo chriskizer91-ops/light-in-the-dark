@@ -2,7 +2,9 @@ import { THREE, $, IS_TOUCH, renderer, scene, camera, hemi, canvas, settings, sn
 import { generateLevel, LV, TILE, idx, inBounds, toTile, lineOfSight, moveWithCollisions } from './level.js';
 import { createLantern, updateLantern, lantern, MODES, setMode, swingBlade, beamAt, glint, inBeam, showViewModels, NEAR_R } from './lantern.js';
 import { buildWorld, W, ensureDetail, DETAIL, updateWorldLights, updateCulling, updateCover, updateFireflies, FX, litTest, spawnPickup } from './world3d.js';
-import { spawnCreatures, updateCreatures, CR, damageEnemy, exposeEnemy, interruptEnemy, addCreature } from './creatures.js';
+import { spawnCreatures, updateCreatures, CR, damageEnemy, exposeEnemy, interruptEnemy, addCreature, refreshCreatureDetail, creatureTris } from './creatures.js';
+import { updateFX, burst } from './fx.js';
+import { rigTris } from './rigs.js';
 import { G, P, H, BAL } from './state.js';
 import { initAudio, updateAudio, sfx, setSound, AU } from './audio.js';
 import { readMove, A, tryLock } from './input.js';
@@ -132,6 +134,7 @@ A.flare = () => {
   if (P.flareCd > 0 || P.fuel < BAL.flareCost) { if (P.fuel < BAL.flareCost) H.hint('Not enough oil to flare.', 1.6); return; }
   P.fuel -= BAL.flareCost; P.flareCd = 5.6; sfx.flare(); G.shake = Math.max(G.shake, 0.5); G.flash = 0.5;
   Object.assign(flare, { on: true, life: flare.max }); flare.hit.clear(); FX.flareX = P.x; FX.flareZ = P.z;
+  burst(lantern.pos.x, lantern.pos.y, lantern.pos.z, 36, [1, 0.82, 0.45], 7, 0.55, -2, 0.3);
   H.say('Break them open.');
 };
 const pulseFx = { on: false, life: 0, max: 0.34, R: 12, hit: new Set() };
@@ -139,6 +142,7 @@ A.pulse = () => {
   if (P.pulseCd > 0 || P.fuel < BAL.pulseCost) return;
   P.fuel -= BAL.pulseCost; P.pulseCd = 2.15; sfx.pulse();
   Object.assign(pulseFx, { on: true, life: pulseFx.max }); pulseFx.hit.clear(); FX.pulseX = P.x; FX.pulseZ = P.z;
+  for (let i = 0; i < 28; i++) { const a = (i / 28) * TAU; burst(P.x + Math.cos(a) * 0.6, 0.25, P.z + Math.sin(a) * 0.6, 1, [0.45, 0.65, 1], 0.1, 0.4, 0, 0); }
 };
 A.mode = () => A.setMode((lantern.mode + 1) % 3);
 A.setMode = (m) => {
@@ -380,7 +384,7 @@ document.querySelectorAll('#tricks input').forEach((inp) => {
   const k = inp.dataset.k; inp.checked = !!settings[k];
   inp.addEventListener('change', () => { settings[k] = inp.checked; applySetting(k); });
 });
-function setDetail(d) { settings.detail = d; document.querySelectorAll('#detailSeg button').forEach((b) => b.classList.toggle('on', b.dataset.d === d)); ensureDetail(); }
+function setDetail(d) { settings.detail = d; document.querySelectorAll('#detailSeg button').forEach((b) => b.classList.toggle('on', b.dataset.d === d)); ensureDetail(); refreshCreatureDetail(); }
 document.querySelectorAll('#detailSeg button').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); setDetail(b.dataset.d); }));
 function applySetting(k) {
   const box = document.querySelector(`#tricks input[data-k=${k}]`); if (box) box.checked = !!settings[k];
@@ -399,8 +403,9 @@ function updateStats() {
   $('stats').classList.toggle('hidden', !show); if (!show) return;
   const info = renderer.info.render, k = (t) => (t >= 1e6 ? (t / 1e6).toFixed(2) + 'M' : (t / 1000).toFixed(1) + 'k');
   const viewT = info.triangles - statsProbe.shadowTris - 1, viewC = info.calls - statsProbe.shadowCalls - 1;
-  lastStats = { fps, view: viewT, shadow: statsProbe.shadowTris, calls: viewC, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, jsMs: +perf.js.toFixed(2), renderMs: +perf.render.toFixed(2) };
-  $('stats').innerHTML = `${fps} FPS · DETAIL ${DETAIL[settings.detail].label}<br><b>${k(viewT)} tris in view</b><br>+${k(statsProbe.shadowTris)} shadow pass<br>${viewC} draw calls (+${statsProbe.shadowCalls})<br>${W.drawn} / ${W.total} objects · ${W.coverDrawn} cover`;
+  const ct = creatureTris();
+  lastStats = { fps, view: viewT, shadow: statsProbe.shadowTris, calls: viewC, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: ct, jsMs: +perf.js.toFixed(2), renderMs: +perf.render.toFixed(2) };
+  $('stats').innerHTML = `${fps} FPS · DETAIL ${DETAIL[settings.detail].label}<br><b>${k(viewT)} tris in view</b><br>${k(ct)} of them creatures<br>+${k(statsProbe.shadowTris)} shadow pass<br>${viewC} draw calls (+${statsProbe.shadowCalls})<br>${W.drawn} / ${W.total} objects · ${W.coverDrawn} cover`;
 }
 const xr = $('xray'), xg = xr.getContext('2d');
 function drawXray() {
@@ -456,7 +461,7 @@ function runFrame(now, doRender, fixedDt) {
   updateCreatures(live ? dt : G.state === 'menu' ? rdt : 0, camera);
   updateItems(rdt, t);
   updateEnvironment();
-  updateCulling(); updateCover(); updateFireflies(rdt, t, G.danger);
+  updateCulling(); updateCover(); updateFireflies(rdt, t, G.danger); updateFX(G.paused ? 0 : dt);
   updateAudio(rdt, P.x, P.z, lantern.fwd, live, CR.dangerNear, G.danger);
   const tB = performance.now();
   if (doRender) { renderer.info.reset(); renderer.render(scene, camera); }
@@ -473,6 +478,6 @@ toMenu();
 requestAnimationFrame(frame);
 
 // hook for automated playtesting
-window.__crown3d = { G, P, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature,
-  measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn }; },
+window.__crown3d = { G, P, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris,
+  measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: creatureTris() }; },
   step(sec, render = true) { let n = Math.round(sec * 60), now = lastT; for (let i = 0; i < n; i++) { now += 1000 / 60; runFrame(now, false, 1 / 60); } if (render) runFrame(now + 1000 / 60, true, 1 / 60); } };
