@@ -1,8 +1,13 @@
-# The Hollow Crown: Lantern of the Deep — 3D first-person (Floor III: The Deep Woods)
+# The Hollow Crown: Lantern of the Deep — 3D first-person (Floors III–IV)
 
 The Hollow Crown's rules (oil, the three lantern stances, slash / dash / flare / pulse, braziers, hidden caches, exposure) rebuilt as a first-person 3D game on the Eyeshine engine. The core idea comes from Eyeshine: **if the player can only see what the lantern touches, only draw that**, and spend the saved triangles on detail inside the beam.
 
 The Warden carries a **bullseye lantern**: one lens in front and a shutter. DIM, STEADY and BRIGHT are how far the shutter is open, so the lantern throws a single beam where you look and everything else stays dark.
+
+Two floors so far, played in order (or start at IV from the title screen):
+
+- **Floor III, the Deep Woods.** A generated forest of clearings and trails. Wolves, shade leeches, ember moths, a bandit camp.
+- **Floor IV, the Eastern Ruins (outer).** The 2D Crown's hand-built layout in stone: an antechamber with the Gray Merchant, a central hub, then a fork. West: Sera, Maren's daughter, chained as an anchor for the crown; light her braziers so she can speak, then strike the three chain anchors to free her (+8 max health, pulse costs less). East: the Ruin Guardian; kill it and three carved signs wake on the wall; hold the bright beam on them in the order of the murals (Crown, Light, Shadow) for the Crown Shard (+5 attack, brighter cuts, 5% less damage taken). Whichever wing you finish, the other collapses. Wax sentinels sleep until bright light or you wake them, and only crack under a pulse; gloom hounds circle in the dark when you go Bright, then come in from the side. Health and oil carry down from the woods (+28 health, +50 oil).
 
 Three.js r170, no other runtime dependencies. Everything (models, textures, audio) is generated in code, and the build is one self-contained HTML file.
 
@@ -18,9 +23,11 @@ node build.mjs          # -> dist/hollow-crown-3d.html (open it in any browser)
 | File | What's in it |
 |---|---|
 | `src/lantern.js` | **The lantern.** The SpotLight and its lens cookie, the three shutter stances, the vent glow, the held lantern and blade you see in your hands, and the questions the game asks about light: `lanternLevel` (how lit is a point), `inBeam` (is a sphere inside the beam, used for culling), `glint` (how hard an eye shines back) |
-| `src/level.js` | The floor generator, ported from the 2D Crown: rooms and winding corridors on a tile grid (1 tile = 2 m), room types, the bandit camp, braziers, caches, enemies. Also tile collision, line of sight and A* pathfinding |
-| `src/world3d.js` | Turns the tiles into a forest (trees on wall tiles, densest at the edge of every clearing), builds braziers, pickups and the stair down, and runs **the trick**: `updateCulling` (grid-based beam culling, LOD swaps, shadow-proxy pool), `updateCover` (instanced ground cover in the beam), the brazier light pool |
-| `src/creatures.js` | Wolves, shade leeches, ember moths and bandits: the Crown's AI in metres, exposure and damage, procedural animation (gaits, head tracking, snarls, hackles, rearing, wingbeats, sword work, hit recoil, deaths), eyeshine |
+| `src/level.js` | The floor generators, ported from the 2D Crown: Floor III's rooms and winding corridors on a tile grid (1 tile = 2 m), and Floor IV's hand-built ruins layout with its two wings, the tiles each wing loses when it collapses, colonnades, statues, murals and plaques. Also tile collision, line of sight and A* pathfinding |
+| `src/world3d.js` | Builds each floor (the forest from the tiles, or the ruins via `ruins.js`), braziers, pickups and the stair down, and runs **the trick**: `updateCulling` (wall visibility first in the ruins, then grid-based beam culling, LOD swaps, shadow-proxy pool), `updateCover` (instanced ground cover in the beam), the brazier light pool |
+| `src/ruins.js` | **The Eastern Ruins.** Stone walls from the tile grid (one textured face per wall-floor boundary, merged per 8 m cell), flagstone floors, and in front of the walls, only close up and in the beam, individual carved blocks (instanced, 4 variants, aligned with the painted texture behind them). Fluted pillars and broken stumps, hooded court statues whose heads turn while you are not looking, vaulted arches over the doorways, murals, carved plaques, ruin ground cover, and `computeSeen`: ~160 rays through the tile grid each frame, so a room behind a wall is never drawn, however bright it is |
+| `src/story.js` | Floor IV's fork: Sera (a rim-lit ghost, her chains and anchors), the Gray Merchant, the Guardian's plaque puzzle, and the collapse (which refuses to happen if it would seal you in) |
+| `src/creatures.js` | Wolves, shade leeches, ember moths, bandits, wax sentinels, the Ruin Guardian and gloom hounds: the Crown's AI in metres, exposure and damage, procedural animation (gaits, head tracking, snarls, hackles, rearing, wingbeats, sword work, the sentinel's slam, hit recoil, deaths), eyeshine |
 | `src/rigs.js` | **Creature models.** Detailed skinned rigs built in code: smooth lofted bodies and limbs on a skeleton with two-bone blends, so each creature is one mesh (3 draw calls: body, gloss, accent). Four quality tiers follow the DETAIL setting |
 | `src/fx.js` | Pooled particles: hit sparks, breath in the cold air, moth embers, death bursts (one draw call each) |
 | `src/trees.js` | Tree, thicket, rock and ground-cover builders (low-poly and hi-poly) |
@@ -40,15 +47,29 @@ Triangles per creature, by DETAIL tier (LOW / HIGH / ULTRA / MAX):
 | Shade leech | 1.3k | 3.7k | 6.8k | 11.1k |
 | Ember moth | 1.2k | 3.1k | 5.0k | 8.6k |
 | Bandit | 3.1k | 7.2k | 11.8k | 19.5k |
+| Wax sentinel | 3.5k | 8.8k | 15.7k | 26.7k |
+| Ruin Guardian | 3.7k | 9.5k | 16.3k | 28.2k |
+| Gloom hound | 3.1k | 6.3k | 11.8k | 19.1k |
 
 The environment budget is unchanged. A creature's body is drawn only when light touches it (its eyes can still shine back from the dark).
 
+## What the ruins' culling saves
+
+Triangles and draw calls on screen in the Eastern Ruins, BRIGHT beam, four fixed views (hub, west wing, Guardian Hall, exit room), with "only draw what light touches" on (beam + walls) and off:
+
+| DETAIL | On: triangles | Off: triangles | On: draw calls | Off: draw calls |
+|---|---|---|---|---|
+| LOW | 1k–7k | 30k–34k | 23–57 | 79–148 |
+| HIGH | 16k–37k | 142k–145k | 28–66 | 88–157 |
+| ULTRA | 25k–89k | 373k–397k | 28–66 | 88–157 |
+| MAX | 68k–209k | 744k–801k | 31–65 | 88–157 |
+
 ## Controls
 
-- **Desktop:** WASD move, mouse look (click to capture), click or Space slash, Shift dash, right-click or F flare, E pulse, Q (or 1 2 3) lantern shutter, R use (light a brazier, descend), T rendering tricks, Esc pause.
+- **Desktop:** WASD move, mouse look (click to capture), click or Space slash (also strikes Sera's chain anchors), Shift dash, right-click or F flare, E pulse, Q (or 1 2 3) lantern shutter, R use (light a brazier, descend), T rendering tricks, Esc pause.
 - **Touch:** left thumb walks, right thumb looks, plus LIGHT, PULSE, USE, FLARE, DASH and SLASH.
 - **Gamepad:** sticks move and look, A/RT slash, B dash, X pulse, Y use, LB shutter, RB/LT flare.
 
 ## Debug hook
 
-`window.__crown3d` exposes the state (`G`, `P`, `LV`, `W`, `CR`, `lantern`, `settings`, `stats`) and actions (`startGame`, `setMode`, `setDetail`, `addCreature`, `measure`, `step`). Set `window.__hold = true` before load to drive the loop yourself with `step(seconds)`.
+`window.__crown3d` exposes the state (`G`, `P`, `LV`, `W`, `CR`, `ST`, `lantern`, `settings`, `stats`) and actions (`startGame(floor)`, `setMode`, `setDetail`, `addCreature`, `descend`, `measure`, `step`). Set `window.__freezeAI = true` to stop the AI but keep animation running. Set `window.__hold = true` before load to drive the loop yourself with `step(seconds)`.

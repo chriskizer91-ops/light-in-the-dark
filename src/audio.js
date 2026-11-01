@@ -5,7 +5,8 @@ import { mr, rr, clamp, lerp, settings } from './engine.js';
 //  hunter is close, positional rustles, heartbeat) is Eyeshine's; the
 //  combat sounds stand in for the Crown's.
 // =====================================================================
-export const AU = { ctx: null };
+export const AU = { ctx: null, floor: 3 };
+export function setAmbience(floor) { AU.floor = floor; }
 
 export function initAudio() {
   if (AU.ctx) { if (AU.ctx.state !== 'running') AU.ctx.resume().catch(() => {}); return; }
@@ -95,7 +96,22 @@ export const sfx = {
   hiss(e) { const p = at3(e, 0.4); if (!p) return; noiseShot({ type: 'highpass', freq: 2500, a: 0.08, peak: 0.45, dcy: 0.6, dest: p }); },
   flutter(e, v = 1) { const p = at3(e, 1.6); if (!p) return; for (let i = 0; i < 5; i++) noiseShot({ freq: rr(350, 650), q: 1.2, a: 0.004, peak: 0.4 * v, dcy: 0.035, at: i * 0.04, dest: p }); },
   shout(e) { const p = at3(e, 1.6); if (!p) return; tone({ type: 'sawtooth', f0: 170, f1: 120, a: 0.04, peak: 0.25, dcy: 0.4, dest: p, lp: 1100 }); noiseShot({ freq: 700, q: 2, a: 0.03, peak: 0.2, dcy: 0.35, dest: p }); },
-  windup(e) { if (e.type === 'wolf') this.growl(e); else if (e.type === 'leech') this.hiss(e); else if (e.type === 'bandit') this.shout(e); },
+  windup(e) { if (e.type === 'wolf') this.growl(e); else if (e.type === 'leech') this.hiss(e); else if (e.type === 'bandit') this.shout(e); else if (e.type === 'hound') this.whine(e); else if (e.type === 'sentinel' || e.type === 'guardian') this.grind(e, 0.7); },
+  // the ruins
+  grind(e, v = 1) { const p = at3(e, 1.6); if (!p) return; noiseShot({ type: 'bandpass', freq: 260, f1: 140, q: 2.5, a: 0.08, peak: 0.6 * v, dcy: 0.7, dest: p }); tone({ type: 'sawtooth', f0: 55, f1: 42, a: 0.1, peak: 0.12 * v, dcy: 0.6, lp: 300, dest: p }); },
+  slam(e) { const p = at3(e, 0.3); noiseShot({ type: 'lowpass', freq: 380, f1: 90, a: 0.004, peak: 0.9, dcy: 0.6, dest: p }); tone({ type: 'square', f0: 62, f1: 34, a: 0.004, peak: 0.28, dcy: 0.45, lp: 260, dest: p }); noiseShot({ type: 'highpass', freq: 2400, a: 0.002, peak: 0.25, dcy: 0.18, at: 0.03, dest: p }); },
+  thud(e) { const p = at3(e, 0.1); if (!p) return; noiseShot({ type: 'lowpass', freq: 240, a: 0.006, peak: 0.6, dcy: 0.22, dest: p }); tone({ f0: 70, f1: 48, a: 0.004, peak: 0.12, dcy: 0.18, dest: p }); },
+  claws(e) { const p = at3(e, 0.1); if (!p) return; for (let i = 0; i < 3; i++) noiseShot({ type: 'highpass', freq: 3800, a: 0.001, peak: 0.45, dcy: 0.02, at: i * mr(0.05, 0.09), dest: p }); },
+  whine(e) { const p = at3(e, 0.9); if (!p) return; tone({ type: 'triangle', f0: 520, f1: 940, a: 0.05, peak: 0.12, dcy: 0.42, dest: p, lp: 2400 }); noiseShot({ type: 'bandpass', freq: 900, q: 4, a: 0.05, peak: 0.12, dcy: 0.35, dest: p }); },
+  rumble() { noiseShot({ type: 'lowpass', freq: 160, a: 0.3, peak: 0.9, dcy: 3.2 }); tone({ type: 'sawtooth', f0: 38, f1: 28, a: 0.4, peak: 0.25, dcy: 3, lp: 140 }); for (let i = 0; i < 9; i++) noiseShot({ type: 'lowpass', freq: rr(300, 700), a: 0.004, peak: rr(0.2, 0.5), dcy: rr(0.1, 0.3), at: rr(0.2, 2.6) }); },
+  chain(x, z) { const p = AU.ctx ? panner(x, 1, z) : null; if (!p) return; tone({ type: 'square', f0: 1850, f1: 1700, a: 0.001, peak: 0.05, dcy: 0.14, lp: 5000, dest: p }); tone({ type: 'square', f0: 2650, a: 0.001, peak: 0.035, dcy: 0.1, lp: 6000, dest: p }); noiseShot({ type: 'highpass', freq: 4200, a: 0.001, peak: 0.3, dcy: 0.05, dest: p }); },
+  chainBreak(x, z) { this.chain(x, z); const p = AU.ctx ? panner(x, 1, z) : null; if (!p) return; noiseShot({ type: 'bandpass', freq: 2800, f1: 900, q: 1.5, a: 0.002, peak: 0.6, dcy: 0.5, dest: p }); tone({ f0: 300, f1: 900, a: 0.01, peak: 0.12, dcy: 0.8, dest: p }); },
+  glyph(i) { tone({ f0: [523, 659, 784][i] || 880, a: 0.01, peak: 0.12, dcy: 0.9 }); tone({ f0: ([523, 659, 784][i] || 880) * 2, a: 0.01, peak: 0.04, dcy: 0.7 }); },
+  wrong() { tone({ type: 'sawtooth', f0: 155, f1: 120, a: 0.01, peak: 0.18, dcy: 0.6, lp: 900 }); tone({ type: 'sawtooth', f0: 164, f1: 126, a: 0.01, peak: 0.18, dcy: 0.6, lp: 900 }); noiseShot({ type: 'lowpass', freq: 500, a: 0.005, peak: 0.5, dcy: 0.3 }); },
+  relic() { [392, 494, 587, 784, 988].forEach((f, i) => tone({ f0: f, a: 0.02, peak: 0.08, dcy: 1.6, at: i * 0.12 })); tone({ type: 'sawtooth', f0: 98, a: 0.4, peak: 0.05, dcy: 2.5, lp: 600 }); },
+  spirit(v = 1) { [440, 554, 659].forEach((f, i) => tone({ f0: f, f1: f * 1.002, a: 0.6, peak: 0.05 * v, dcy: 2.6, at: i * 0.15 })); },
+  drip(x, z) { const p = AU.ctx ? panner(x, 3, z) : null; if (!p) return; tone({ f0: rr(1100, 1500), f1: rr(500, 700), a: 0.002, peak: 0.12, dcy: 0.08, dest: p }); },
+  merchant() { tone({ type: 'triangle', f0: 196, f1: 185, a: 0.05, peak: 0.06, dcy: 0.7 }); },
   crackle(b, v) { const p = at3(b, 1); if (!p) return; tone({ f0: 320 + Math.random() * 420, a: 0.003, peak: 0.08 * v, dcy: 0.03, dest: p }); },
   ambient(x, z) { if (!AU.ctx) return; const a = Math.random() * 6.283, p = panner(x + Math.sin(a) * 40, 6, z + Math.cos(a) * 40); tone({ f0: 400, f1: 360, a: 0.05, peak: 0.22, dcy: 0.35, dest: p }); tone({ f0: 390, f1: 350, a: 0.05, peak: 0.22, dcy: 0.5, at: 0.5, dest: p }); },
 };
@@ -107,11 +123,14 @@ export function updateAudio(dt, x, z, fwd, live, dangerNear, danger) {
     L.positionX.value = x; L.positionY.value = 1.62; L.positionZ.value = z;
     L.forwardX.value = fwd.x; L.forwardY.value = fwd.y; L.forwardZ.value = fwd.z; L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
   } else { L.setPosition(x, 1.62, z); L.setOrientation(fwd.x, fwd.y, fwd.z, 0, 1, 0); }
-  AU.wind.gain.setTargetAtTime(live ? 0.1 : 0.06, now, 0.5);
-  AU.bugs.gain.setTargetAtTime(live ? clamp((dangerNear - 6) / 12, 0, 1) : 0.4, now, 0.4);
+  const ruins = AU.floor === 4;
+  // the woods: wind in the canopy, crickets that hush; the ruins: a low draught, water dripping somewhere, no insects
+  AU.wind.gain.setTargetAtTime(live ? (ruins ? 0.05 : 0.1) : 0.06, now, 0.5);
+  AU.bugs.gain.setTargetAtTime(ruins ? 0 : live ? clamp((dangerNear - 6) / 12, 0, 1) : 0.4, now, 0.4);
+  if (ruins && live && now > (AU.nextDrip || 0)) { const a = Math.random() * 6.283, d = mr(6, 22); sfx.drip(x + Math.cos(a) * d, z + Math.sin(a) * d); AU.nextDrip = now + mr(0.8, 4.5); }
   AU.drone.gain.setTargetAtTime(live ? 0.5 + danger * 0.8 : 0.3, now, 0.8);
   if (live && danger > 0.05 && now > AU.nextHeart) { sfx.heart(danger); AU.nextHeart = now + lerp(1.05, 0.42, danger); }
-  if (live && now > AU.nextAmb) { sfx.ambient(x, z); AU.nextAmb = now + mr(16, 34); }
+  if (live && now > AU.nextAmb) { if (ruins) sfx.grind({ x: x + mr(-40, 40), z: z + mr(-40, 40) }, 0.35); else sfx.ambient(x, z); AU.nextAmb = now + mr(16, 34); }
 }
 export function setSound(on) { if (AU.master) AU.master.gain.setTargetAtTime(on ? 0.9 : 0, AU.ctx.currentTime, 0.05); }
 document.addEventListener('visibilitychange', () => { if (!AU.ctx) return; if (document.hidden) AU.ctx.suspend().catch(() => {}); else AU.ctx.resume().catch(() => {}); });

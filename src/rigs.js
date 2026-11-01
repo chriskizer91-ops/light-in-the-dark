@@ -1,4 +1,4 @@
-import { THREE, rnd, rr, srand, clamp, lerp, nz3, TAU } from './engine.js';
+import { THREE, rnd, rr, ri, srand, clamp, lerp, nz3, TAU } from './engine.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // =====================================================================
@@ -420,7 +420,177 @@ function bandit(q) {
   return { def, geo: B.build(), eyes: null, height: 1.8, roughness: 0.85, side: THREE.DoubleSide, accent: 'steel', bladeBone: 'hdR', bladePos: [hx, hy, hz + 0.45] };
 }
 
-const BUILDERS = { wolf, leech, moth, bandit };
+// =====================================================================
+//  WAX SENTINEL — a hulking figure of old candle wax, faceless, one ember
+//  socket for an eye, candles burning on its head and shoulders once it
+//  wakes, and molten fissures that blaze when a pulse cracks it open.
+//  The Ruin Guardian is the same thing, older and grey: a stone crown,
+//  a broken shield grown into its arm, a rotted tabard.
+// =====================================================================
+function sentinel(q, guardian = false) {
+  srand((guardian ? 6006 : 5005) + q);
+  const def = bones([
+    ['root', null, 0, 0, 0], ['hips', 'root', 0, 1.0, 0], ['spine', 'hips', 0, 1.24, 0.01], ['chest', 'spine', 0, 1.5, 0.04], ['neck', 'chest', 0, 1.76, 0.1], ['head', 'neck', 0, 1.9, 0.15],
+    ['shL', 'chest', 0.34, 1.68, 0.03], ['elL', 'shL', 0.44, 1.22, 0.06], ['hdL', 'elL', 0.48, 0.82, 0.1],
+    ['shR', 'chest', -0.34, 1.68, 0.03], ['elR', 'shR', -0.44, 1.22, 0.06], ['hdR', 'elR', -0.48, 0.82, 0.1],
+    ['thL', 'hips', 0.16, 0.98, 0], ['knL', 'thL', 0.18, 0.54, 0.04], ['ftL', 'knL', 0.18, 0.1, 0],
+    ['thR', 'hips', -0.16, 0.98, 0], ['knR', 'thR', -0.18, 0.54, 0.04], ['ftR', 'knR', -0.18, 0.1, 0],
+  ]);
+  const B = new RigBuilder(def), radial = Q(q, [8, 14, 22, 30]), rings = Q(q, [6, 12, 20, 28]), d = Q(q, [1, 2, 2, 3]);
+  const wax = guardian ? C(0xa8a294) : C(0xd6caa8), grime = guardian ? C(0x4e4a42) : C(0x86765a), drip = guardian ? C(0xc4beac) : C(0xeee2c0), ember = C(0xff7a2a), stone = C(0x76716a), soot = C(0x241e1a);
+  // wax gathers grime low down and in the hollows; it is paler where it has run
+  const waxCol = (k = 1) => (x, y, z, nx, ny) => { const n = noise(x * 9, y * 9, z * 9), g = clamp(0.35 - ny * 0.35 + (y < 0.7 ? (0.7 - y) * 0.9 : 0) + (n - 0.5) * 0.5, 0, 1); return shade(mixc(wax, grime, g * 0.75), (0.82 + 0.3 * n) * k); };
+  const lump = (amp, f = 1, seed = 0) => (a, t) => 1 + amp * nz3(Math.cos(a) * 2.5 * f + seed, t * 9 * f, Math.sin(a) * 2.5 * f - seed);
+  // legs: thick, slumped columns that pool at the feet
+  for (const sx of [1, -1]) {
+    const S = sx > 0 ? 'L' : 'R';
+    B.add(loft([{ p: [sx * 0.16, 1.02, 0], r: [0.16, 0.17] }, { p: [sx * 0.17, 0.76, 0.02], r: [0.14, 0.15] }, { p: [sx * 0.18, 0.55, 0.04], r: [0.12, 0.13] }], { radial, rings, ref: [0, 0, 1], shape: lump(0.07, 1, sx) }), 'th' + S, waxCol());
+    B.add(loft([{ p: [sx * 0.18, 0.56, 0.04], r: [0.12, 0.13] }, { p: [sx * 0.18, 0.32, 0.02], r: [0.11, 0.12] }, { p: [sx * 0.18, 0.1, 0], r: [0.13, 0.14] }], { radial, rings, ref: [0, 0, 1], shape: lump(0.08, 1.3, sx * 2) }), 'kn' + S, waxCol(0.95));
+    B.add(blob(d), 'ft' + S, waxCol(0.9), { matrix: M(sx * 0.18, 0.06, 0.06, 0, 0, 0, 0.13, 0.075, 0.18) });
+    B.add(blob(d, (x, y, z) => [x * (1 + 0.15 * nz3(z * 4, x * 4, sx)), Math.min(y, 0.3), z]), 'ft' + S, shade(drip, 0.85), { matrix: M(sx * 0.18, 0.02, 0.05, 0, 0, 0, 0.19, 0.035, 0.23) });
+  }
+  B.add(blob(d), 'hips', waxCol(), { matrix: M(0, 1.0, 0, 0, 0, 0, 0.28, 0.17, 0.21) });
+  // torso: a slumped barrel, hunched forward
+  const torso = [{ p: [0, 1.0, 0], r: [0.26, 0.2] }, { p: [0, 1.22, 0.01], r: [0.24, 0.19] }, { p: [0, 1.48, 0.06], r: [0.36, 0.26] }, { p: [0, 1.66, 0.08], r: [0.39, 0.23] }, { p: [0, 1.8, 0.12], r: [0.15, 0.14] }];
+  const tBind = (x, y, z) => along1([[1.04, 'hips'], [1.24, 'spine'], [1.5, 'chest'], [1.77, 'neck']])(y);
+  B.add(loft(torso, { radial: radial + 4, rings: rings + 4, ref: [0, 0, 1], shape: lump(0.07, 1.2, 3) }), tBind, waxCol());
+  // shoulders, arms hanging long, fists fused into mallets of wax
+  for (const sx of [1, -1]) {
+    const S = sx > 0 ? 'L' : 'R';
+    B.add(blob(d), 'sh' + S, waxCol(), { matrix: M(sx * 0.33, 1.7, 0.04, 0, 0, sx * 0.3, 0.19, 0.16, 0.18) });
+    B.add(loft([{ p: [sx * 0.34, 1.7, 0.03], r: [0.13, 0.13] }, { p: [sx * 0.4, 1.45, 0.04], r: [0.12, 0.12] }, { p: [sx * 0.44, 1.22, 0.06], r: [0.11, 0.11] }], { radial, rings, ref: [0, 0, 1], shape: lump(0.07, 1, sx + 5) }), 'sh' + S, waxCol());
+    B.add(loft([{ p: [sx * 0.44, 1.23, 0.06], r: [0.11, 0.11] }, { p: [sx * 0.46, 1.02, 0.08], r: [0.12, 0.12] }, { p: [sx * 0.48, 0.86, 0.1], r: [0.14, 0.14] }], { radial, rings, ref: [0, 0, 1], shape: lump(0.08, 1.3, sx + 7) }), 'el' + S, waxCol(0.95));
+    B.add(blob(d, (x, y, z) => [x * (1 + 0.12 * nz3(y * 5, z * 5, sx)), y, z]), 'hd' + S, waxCol(0.9), { matrix: M(sx * 0.485, 0.74, 0.11, 0, 0, 0, 0.17, 0.18, 0.17) });
+    for (let i = 0; i < Q(q, [2, 4, 4, 4]); i++) B.add(blob(1), 'hd' + S, shade(drip, 0.8), { matrix: M(sx * 0.485 + (i - 1.5) * 0.06, 0.66, 0.24, 0, 0, 0, 0.045, 0.05, 0.05) });
+  }
+  // head: faceless, one sunken socket where the ember sits
+  B.add(blob(d, (x, y, z) => [x, y, z > 0.55 ? 0.55 + (z - 0.55) * 0.35 : z]), 'head', waxCol(1.05), { matrix: M(0, 1.98, 0.16, 0.12, 0, 0, 0.15, 0.18, 0.16) });
+  B.add(blob(Q(q, [1, 2, 2, 3])), 'head', C(0x0a0605), { slot: 1, matrix: M(0, 1.99, 0.255, 0, 0, 0, 0.05, 0.045, 0.03) });
+  // candles: on the head (a crown of them) and the shoulders; the flames are sprites, lit when it wakes
+  const candles = [];
+  const candle = (bone, x, y, z, h, r) => {
+    B.add(new THREE.CylinderGeometry(r, r * 1.08, h, Q(q, [5, 7, 9, 12])), bone, (px, py, pz) => shade(drip, 0.9 + 0.2 * noise(px * 60, py * 60, pz * 60)), { matrix: M(x, y + h / 2, z) });
+    B.add(new THREE.CylinderGeometry(0.004, 0.004, 0.025, 4), bone, soot, { matrix: M(x, y + h + 0.012, z) });
+    for (let i = 0; i < Q(q, [1, 2, 3, 4]); i++) { const a = rr(0, TAU); B.add(cone(4, r * 0.4, rr(0.04, h * 0.8)), bone, shade(drip, 1.05), { flat: true, matrix: along(new V3(x + Math.cos(a) * r, y + h - 0.005, z + Math.sin(a) * r), new V3(0, -1, 0)) }); }
+    candles.push({ bone, pos: [x, y + h + 0.035, z], s: r * 3.2 });
+  };
+  if (guardian) {
+    // the stone crown, with candles in its points
+    B.add(new THREE.TorusGeometry(0.15, 0.03, Q(q, [4, 6, 8, 10]), Q(q, [10, 16, 24, 32])), 'head', (x, y, z) => shade(stone, 0.8 + 0.3 * noise(x * 30, y * 30, z * 30)), { matrix: M(0, 2.12, 0.15, Math.PI / 2 - 0.12, 0, 0, 1, 1, 0.8) });
+    for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU + 0.26, x = Math.sin(a) * 0.15, z = 0.15 + Math.cos(a) * 0.15; B.add(cone(4, 0.035, 0.12), 'head', shade(stone, 0.9), { flat: true, matrix: M(x, 2.12, z) }); if (i % 2 === 0) candle('head', x, 2.2, z, rr(0.06, 0.12), 0.022); }
+  } else {
+    candle('head', -0.07, 2.12, 0.13, 0.12, 0.028); candle('head', 0.02, 2.15, 0.17, 0.18, 0.03); candle('head', 0.09, 2.11, 0.11, 0.09, 0.026);
+  }
+  for (const sx of [1, -1]) { const S = sx > 0 ? 'L' : 'R'; candle('sh' + S, sx * 0.37, 1.84, 0.0, rr(0.1, 0.2), 0.033); candle('sh' + S, sx * 0.28, 1.83, -0.08, rr(0.07, 0.13), 0.03); }
+  // runs of wax down the body
+  for (let i = 0, n = Q(q, [8, 24, 40, 64]); i < n; i++) {
+    const t = rr(0.25, 0.95), a = rr(0, TAU), sp = loftSurface(torso, t, a, [0, 0, 1], 0.97);
+    const dl = rr(0.05, 0.13), dr = rr(0.018, 0.032), dd = sp.n.clone().multiplyScalar(0.2).add(new V3(0, -1, 0)).normalize();
+    B.add(blob(1), tBind, shade(drip, 0.92 + 0.15 * rnd()), { matrix: along(sp.p.clone().addScaledVector(dd, dl * 0.6), dd, dr, dl, dr) });
+  }
+  // fissures: molten seams across chest, back and arms (self-lit; they blaze when it is exposed)
+  for (let f = 0, nf = Q(q, [4, 8, 12, 16]); f < nf; f++) {
+    let t = rr(0.25, 0.85), a = rr(0, TAU), prev = loftSurface(torso, t, a, [0, 0, 1], 1.0).p;
+    for (let k = 0, steps = ri(3, 7); k < steps; k++) {
+      t = clamp(t + rr(-0.08, 0.08), 0.15, 0.95); a += rr(-0.35, 0.35);
+      const cur = loftSurface(torso, t, a, [0, 0, 1], 1.0).p, dir = cur.clone().sub(prev), L = dir.length(); if (L < 0.01) continue;
+      const wd = rr(0.012, 0.02);
+      B.add(new THREE.CylinderGeometry(1, 1, 1, 4), tBind, shade(ember, rr(0.7, 1.1)), { slot: 2, flat: true, matrix: along(prev.clone().add(cur).multiplyScalar(0.5), dir, wd, L * 1.08, wd) });
+      prev = cur;
+    }
+  }
+  if (guardian) {
+    for (const sx of [1, -1]) B.add(new THREE.BoxGeometry(0.3, 0.07, 0.32, 2, 1, 2), 'sh' + (sx > 0 ? 'L' : 'R'), (x, y, z) => shade(stone, 0.8 + 0.3 * noise(x * 20, y * 20, z * 20)), { matrix: M(sx * 0.36, 1.82, 0.03, 0, 0, sx * -0.35) });
+    B.add(new THREE.CylinderGeometry(0.32, 0.3, 0.06, Q(q, [8, 14, 20, 28]), 1, false, 0, TAU * 0.82), 'elL', (x, y, z) => shade(stone, 0.75 + 0.35 * noise(x * 18, y * 18, z * 18)), { matrix: M(0.6, 1.02, 0.1, 0, 0, Math.PI / 2 + 0.1) });
+    const su = Q(q, [3, 6, 9, 12]), sv = Q(q, [4, 8, 12, 16]), pos = [], index = [];
+    for (let i = 0; i <= su; i++) for (let j = 0; j <= sv; j++) { const u = i / su, v = j / sv, rag = v > 0.8 ? (noise(u * 20, 3, 1) - 0.5) * 0.25 : 0; pos.push(lerp(-0.2, 0.2, u), lerp(1.62, 0.6, v) + rag, 0.28 + 0.04 * Math.sin(u * 9) + v * 0.06); }
+    for (let i = 0; i < su; i++) for (let j = 0; j < sv; j++) { const a0 = i * (sv + 1) + j, b0 = a0 + 1, c0 = a0 + sv + 1, d0 = c0 + 1; index.push(a0, c0, b0, b0, c0, d0); }
+    const g = new THREE.BufferGeometry(); g.setIndex(index); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    B.add(g, (x, y, z) => along1([[1.0, 'hips'], [1.5, 'chest']])(y), (x, y, z) => shade(C(0x3e2620), 0.7 + 0.4 * noise(x * 25, y * 25, z)));
+  }
+  return { def, geo: B.build(), eyes: { bone: 'head', pos: [0, 1.99, 0.29], spread: 0, n: 1 }, height: 2.15, roughness: 0.5, side: guardian ? THREE.DoubleSide : THREE.FrontSide, accent: 'glow', candles };
+}
+
+// =====================================================================
+//  GLOOM HOUND — long-legged, hairless and starved: ribs under slate-grey
+//  skin, a ridge of bone down the spine that rises when it means it, a long
+//  skull with too many teeth, a whip of a tail. Pale eyes. Same skeleton as
+//  the wolf, so it moves with the same gait.
+// =====================================================================
+function hound(q) {
+  srand(7007 + q);
+  const def = bones([
+    ['root', null, 0, 0, 0], ['pelvis', 'root', 0, 0.86, -0.46], ['spine', 'pelvis', 0, 0.9, -0.05], ['chest', 'spine', 0, 0.93, 0.32],
+    ['hackles', 'spine', 0, 1.04, 0.05], ['neck', 'chest', 0, 1.02, 0.52], ['head', 'neck', 0, 1.1, 0.74], ['jaw', 'head', 0, 1.04, 0.84],
+    ['earL', 'head', 0.05, 1.17, 0.72], ['earR', 'head', -0.05, 1.17, 0.72],
+    ['FLu', 'chest', 0.1, 0.88, 0.36], ['FLl', 'FLu', 0.11, 0.48, 0.38], ['FLf', 'FLl', 0.11, 0.09, 0.39],
+    ['FRu', 'chest', -0.1, 0.88, 0.36], ['FRl', 'FRu', -0.11, 0.48, 0.38], ['FRf', 'FRl', -0.11, 0.09, 0.39],
+    ['HLu', 'pelvis', 0.11, 0.86, -0.48], ['HLl', 'HLu', 0.12, 0.54, -0.4], ['HLf', 'HLl', 0.12, 0.22, -0.58],
+    ['HRu', 'pelvis', -0.11, 0.86, -0.48], ['HRl', 'HRu', -0.12, 0.54, -0.4], ['HRf', 'HRl', -0.12, 0.22, -0.58],
+    ['tail1', 'pelvis', 0, 0.9, -0.66], ['tail2', 'tail1', 0, 0.82, -0.9], ['tail3', 'tail2', 0, 0.7, -1.12],
+  ]);
+  const B = new RigBuilder(def), radial = Q(q, [8, 16, 24, 32]), rings = Q(q, [10, 22, 34, 48]), d = Q(q, [1, 2, 3, 3]);
+  const back = C(0x1a1d21), side = C(0x2e3339), belly = C(0x454a51), scar = C(0x6a6e70), gum = C(0x3a1e22), ivory = C(0xd0c8b0), bone_ = C(0x8a8478);
+  const skin = (k = 1) => (x, y, z) => { const t = clamp((y - 0.62) / 0.42, 0, 1), c = t < 0.5 ? mixc(belly, side, t * 2) : mixc(side, back, (t - 0.5) * 2), n = noise(x * 11, y * 11, z * 11), mott = noise(x * 3.3 + 7, y * 3.1, z * 3.7) > 0.72 ? 1.25 : 1, sc = Math.abs(nz3(x * 6 + z * 9, y * 14, 2)) < 0.02 ? 1.8 : 1; return shade(c, (0.8 + 0.35 * n) * mott * sc * k); };
+  // torso: tucked waist, deep chest, every rib showing
+  const torso = [{ p: [0, 0.86, -0.72], r: [0.08, 0.1] }, { p: [0, 0.88, -0.5], r: [0.13, 0.15] }, { p: [0, 0.87, -0.22], r: [0.095, 0.115] }, { p: [0, 0.9, 0.06], r: [0.13, 0.18] }, { p: [0, 0.93, 0.3], r: [0.14, 0.215] }, { p: [0, 0.99, 0.46], r: [0.11, 0.15] }];
+  const bodyBind = (x, y, z) => along1([[-0.46, 'pelvis'], [-0.05, 'spine'], [0.32, 'chest']])(z);
+  const ribs = (a, t) => { const rib = t > 0.48 && t < 0.86 ? 0.045 * Math.pow(Math.max(0, Math.cos(t * 70)), 3) * Math.abs(Math.cos(a)) : 0, hip = Math.exp(-(((t - 0.18) / 0.06) ** 2)) * 0.08 * Math.max(0, Math.sin(a)); return 1 + rib + hip + 0.02 * nz3(Math.cos(a) * 4, t * 20, Math.sin(a) * 4); };
+  B.add(loft(torso, { radial: radial + 4, rings: rings + 8, shape: ribs }), bodyBind, skin());
+  // the spine ridge: bony knobs and spines on the hackles bone (they stand up when it scales)
+  for (let i = 0, n = Q(q, [5, 12, 18, 26]); i < n; i++) {
+    const t = lerp(0.12, 0.92, i / (n - 1)), sp = loftSurface(torso, t, Math.PI / 2, [0, 1, 0], 0.98), h = 0.025 + 0.04 * Math.sin(Math.PI * t);
+    B.add(cone(Q(q, [3, 4, 5, 6]), 0.016, h), 'hackles', shade(bone_, 0.75 + 0.3 * rnd()), { flat: true, matrix: along(sp.p, new V3(0, 1, -0.5).normalize()) });
+    if (q > 0) B.add(blob(1), bodyBind, shade(back, 1.2), { matrix: M(sp.p.x, sp.p.y - 0.005, sp.p.z, 0, 0, 0, 0.02, 0.014, 0.025) });
+  }
+  // neck: long, stringy
+  const neckC = [{ p: [0, 0.97, 0.4], r: [0.1, 0.13] }, { p: [0, 1.03, 0.56], r: [0.075, 0.09] }, { p: [0, 1.08, 0.7], r: [0.07, 0.08] }];
+  const neckBind = (x, y, z) => along1([[0.42, 'chest'], [0.54, 'neck'], [0.7, 'head']])(z);
+  B.add(loft(neckC, { radial, rings: Math.max(4, rings >> 1), shape: (a, t) => 1 + 0.06 * Math.max(0, Math.cos(a * 2)) * Math.sin(t * 9) }), neckBind, skin(0.95));
+  // head: a long narrow skull, lips drawn back off a crowded jaw
+  const hd = Q(q, [1, 2, 3, 3]);
+  B.add(blob(hd, (x, y, z) => [x * (z > 0 ? 1 - z * 0.35 : 1), y * (y > 0 ? 0.75 : 0.9), z]), 'head', skin(1.05), { matrix: M(0, 1.11, 0.76, 0, 0, 0, 0.085, 0.085, 0.13) });
+  B.add(loft([{ p: [0, 1.09, 0.82], r: [0.06, 0.055] }, { p: [0, 1.075, 0.96], r: [0.045, 0.042] }, { p: [0, 1.06, 1.06], r: [0.03, 0.03] }], { radial, rings: Math.max(5, rings >> 2) }), 'head', skin(1.1));
+  for (const sx of [-1, 1]) B.add(blob(1), 'head', shade(back, 1.3), { matrix: M(sx * 0.05, 1.15, 0.82, 0, 0, sx * 0.25, 0.03, 0.015, 0.045) });   // brow ridges
+  B.add(blob(1), 'head', C(0x0a0a0c), { slot: 1, matrix: M(0, 1.065, 1.085, 0, 0, 0, 0.02, 0.016, 0.014) });                               // nose
+  for (const sx of [-1, 1]) B.add(blob(Q(q, [1, 1, 2, 2])), 'head', (x, y, z, nx, ny, nz) => (nz > 0.5 ? [0.5, 0.6, 0.66] : [0.03, 0.03, 0.04]), { slot: 1, matrix: M(sx * 0.045, 1.13, 0.86, 0, sx * 0.4, 0, 0.013, 0.011, 0.011) });
+  // gums and two ragged rows of teeth, top and bottom
+  for (const [bone, y, dir, z0] of [['head', 1.05, -1, 0.83], ['jaw', 1.035, 1, 0.84]]) {
+    for (const sx of [-1, 1]) {
+      B.add(loft([{ p: [sx * 0.042, y, z0], r: [0.012, 0.01] }, { p: [sx * 0.032, y, z0 + 0.12], r: [0.01, 0.009] }, { p: [sx * 0.018, y, z0 + 0.21], r: [0.008, 0.007] }], { radial: 6, rings: 6 }), bone, gum);
+      for (let i = 0, n = Q(q, [3, 6, 9, 12]); i < n; i++) { const t = i / (n - 1), x = sx * lerp(0.042, 0.016, t), z = z0 + t * 0.21; B.add(cone(4, 0.006, rr(0.016, 0.03) * (i % 3 === 0 ? 1.6 : 1)), bone, ivory, { slot: 1, flat: true, matrix: along(new V3(x, y, z), new V3(rr(-0.15, 0.15), dir, rr(0, 0.25)).normalize()) }); }
+    }
+  }
+  B.add(loft([{ p: [0, 1.035, 0.82], r: [0.045, 0.02] }, { p: [0, 1.03, 0.95], r: [0.035, 0.016] }, { p: [0, 1.03, 1.04], r: [0.022, 0.012] }], { radial, rings: 6 }), 'jaw', skin(1.1));
+  for (const [sx, bone] of [[1, 'earL'], [-1, 'earR']]) B.add(cone(Q(q, [3, 4, 5, 6]), 0.025, 0.05), bone, shade(side, 0.9), { flat: true, matrix: M(sx * 0.05, 1.16, 0.72, -0.6, 0, -sx * 0.5, 1, 1, 0.5) });
+  // legs: long and thin, knobbed at every joint, black claws
+  const legCol = skin(0.9), lr = Math.max(6, radial - 6), lrings = Math.max(4, rings >> 2);
+  const paw = (x, z, bone) => {
+    B.add(blob(Q(q, [1, 1, 2, 2])), bone, shade(belly, 0.7), { matrix: M(x, 0.03, z + 0.02, 0, 0, 0, 0.035, 0.026, 0.05) });
+    for (let i = 0; i < 4; i++) { const ox = (i - 1.5) * 0.016; B.add(cone(4, 0.005, 0.035), bone, C(0x0c0b0a), { slot: 1, flat: true, matrix: along(new V3(x + ox, 0.02, z + 0.06), new V3(0, -0.5, 1).normalize()) }); }
+  };
+  for (const sx of [1, -1]) {
+    const F = sx > 0 ? 'FL' : 'FR', Hh = sx > 0 ? 'HL' : 'HR';
+    B.add(loft([{ p: [sx * 0.1, 0.9, 0.35], r: [0.055, 0.07] }, { p: [sx * 0.105, 0.68, 0.37], r: [0.038, 0.042] }, { p: [sx * 0.11, 0.48, 0.38], r: [0.03, 0.032] }], { radial: lr, rings: lrings, ref: [0, 0, 1] }), F + 'u', legCol);
+    B.add(blob(1), F + 'l', legCol, { matrix: M(sx * 0.11, 0.48, 0.385, 0, 0, 0, 0.034, 0.038, 0.034) });
+    B.add(loft([{ p: [sx * 0.11, 0.48, 0.38], r: [0.026, 0.028] }, { p: [sx * 0.11, 0.28, 0.385], r: [0.021, 0.023] }, { p: [sx * 0.11, 0.07, 0.39], r: [0.019, 0.021] }], { radial: lr, rings: lrings, ref: [0, 0, 1] }), F + 'l', legCol);
+    paw(sx * 0.11, 0.39, F + 'f');
+    B.add(loft([{ p: [sx * 0.11, 0.9, -0.46], r: [0.07, 0.11] }, { p: [sx * 0.115, 0.7, -0.43], r: [0.05, 0.07] }, { p: [sx * 0.12, 0.54, -0.4], r: [0.03, 0.035] }], { radial: lr, rings: lrings, ref: [0, 0, 1] }), Hh + 'u', legCol);
+    B.add(blob(1), Hh + 'l', legCol, { matrix: M(sx * 0.12, 0.54, -0.405, 0, 0, 0, 0.032, 0.036, 0.034) });
+    B.add(loft([{ p: [sx * 0.12, 0.54, -0.4], r: [0.027, 0.03] }, { p: [sx * 0.12, 0.38, -0.49], r: [0.022, 0.024] }, { p: [sx * 0.12, 0.22, -0.58], r: [0.02, 0.022] }], { radial: lr, rings: lrings, ref: [0, 0, 1] }), Hh + 'l', legCol);
+    B.add(blob(1), Hh + 'f', legCol, { matrix: M(sx * 0.12, 0.22, -0.58, 0, 0, 0, 0.026, 0.03, 0.03) });
+    B.add(loft([{ p: [sx * 0.12, 0.22, -0.58], r: [0.019, 0.021] }, { p: [sx * 0.12, 0.05, -0.54], r: [0.018, 0.02] }], { radial: lr, rings: 4, ref: [0, 0, 1] }), Hh + 'f', legCol);
+    paw(sx * 0.12, -0.55, Hh + 'f');
+  }
+  // tail: a bare whip with a few spines
+  const tailC = [{ p: [0, 0.9, -0.66], r: [0.035, 0.04] }, { p: [0, 0.85, -0.84], r: [0.026, 0.028] }, { p: [0, 0.76, -1.02], r: [0.018, 0.018] }, { p: [0, 0.66, -1.18], r: [0.01, 0.01] }, { p: [0, 0.6, -1.28], r: [0.003, 0.003] }];
+  const tailBind = (x, y, z) => along1([[-1.1, 'tail3'], [-0.9, 'tail2'], [-0.7, 'tail1']])(z);
+  B.add(loft(tailC, { radial: Math.max(6, radial >> 1), rings }), tailBind, skin(0.9));
+  for (let i = 0; i < Q(q, [0, 3, 5, 7]); i++) { const sp = loftSurface(tailC, 0.15 + i * 0.1, Math.PI / 2, [0, 1, 0], 0.95); B.add(cone(4, 0.008, 0.03), tailBind, bone_, { flat: true, matrix: along(sp.p, new V3(0, 1, -0.6).normalize()) }); }
+  return { def, geo: B.build(), eyes: { bone: 'head', pos: [0, 1.13, 0.87], spread: 0.045, n: 2 }, height: 1.2, roughness: 0.6, side: THREE.FrontSide, accent: null };
+}
+
+const BUILDERS = { wolf, leech, moth, bandit, sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound };
 const cache = {};
 export function getRig(type, q) { const k = type + q; if (!cache[k]) cache[k] = BUILDERS[type](q); return cache[k]; }
 export function rigTris(type, q) { return getRig(type, q).geo.userData.tris; }

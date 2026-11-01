@@ -51,6 +51,15 @@
   #voice { position:absolute; left:50%; bottom:max(22px,env(safe-area-inset-bottom)); transform:translateX(-50%); max-width:min(80vw,760px); display:flex; gap:10px; align-items:center;
     font:600 18px/1.35 var(--f); color:#f2e2b8; text-shadow:0 0 12px rgba(255,170,80,.35), 0 2px 2px #000; opacity:0; transition:opacity .4s; }
   #voice.on { opacity:1; }
+  #voice b { display:block; font:700 11px/1.2 var(--f); letter-spacing:.24em; opacity:.75; }
+  #voice b:empty { display:none; }
+  #voice.sera { color:#d4e2ff; text-shadow:0 0 14px rgba(130,160,255,.55), 0 2px 2px #000; font-style:italic; }
+  #voice.sera .flame { background:radial-gradient(circle at 50% 60%, #ffffff, #a8c0ff 55%, #4060c0); box-shadow:0 0 12px #8aa8ff; border-radius:50%; }
+  #voice.merchant { color:#c8c4d2; text-shadow:0 0 8px rgba(160,160,190,.3), 0 2px 2px #000; }
+  #voice.merchant .flame { background:radial-gradient(circle at 50% 70%, #e8ecf4, #8a90a8 60%, #3a3e50); box-shadow:0 0 8px #8890b0; }
+  #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; transition:opacity .9s; z-index:3; }
+  #fade.on { opacity:1; }
+  .go.alt { height:40px; font-size:12px; letter-spacing:.2em; background:rgba(24,22,28,.75); border-color:rgba(200,196,210,.4); color:#d8d4e0; margin-top:0; }
   #voice .flame { flex:none; width:10px; height:15px; border-radius:50% 50% 45% 45%/60% 60% 40% 40%; background:radial-gradient(circle at 50% 70%, #fff3c8, #ffa640 60%, #b04a10); box-shadow:0 0 10px #ff9a40; }
   #hint { position:absolute; left:50%; bottom:calc(max(22px,env(safe-area-inset-bottom)) + 40px); transform:translateX(-50%); max-width:80vw; text-align:center;
     font:500 14px/1.4 var(--f); color:var(--ink2); text-shadow:0 2px 2px #000; opacity:0; transition:opacity .4s; }
@@ -132,11 +141,12 @@
 <div id="danger"></div>
 <div id="hurtfx"></div>
 <div id="flashfx"></div>
+<div id="fade"></div>
 
 <div id="hud" class="hidden">
   <div id="cross"></div>
   <div id="panel">
-    <div id="region"><span id="regionName">THE DEEP WOODS</span><span>III</span></div>
+    <div id="region"><span id="regionName">THE DEEP WOODS</span><span id="regionNum">III</span></div>
     <div class="barRow"><b>♥</b><span id="hpNum">100</span><div class="bar" id="hpBar"><i></i></div></div>
     <div class="barRow" id="oilRow" style="margin-top:9px"><b>🜂</b><span id="oilNum">100</span><div class="bar" id="oilBar"><i></i></div></div>
     <div id="stanceRow">
@@ -145,10 +155,10 @@
     </div>
   </div>
   <div id="mapBox"><canvas id="map" width="118" height="118"></canvas><div id="mood">LISTENING</div></div>
-  <div id="card"><div class="n">III</div><div class="t">THE DEEP WOODS</div></div>
+  <div id="card"><div class="n" id="cardNum">III</div><div class="t" id="cardTitle">THE DEEP WOODS</div></div>
   <div id="prompt"></div>
   <div id="hint"></div>
-  <div id="voice"><i class="flame"></i><span id="voiceText"></span></div>
+  <div id="voice"><i class="flame"></i><span><b id="voiceWho"></b><span id="voiceText"></span></span></div>
 </div>
 
 <canvas id="xray" width="200" height="200" class="hidden"></canvas>
@@ -156,7 +166,7 @@
 <button id="tricksBtn" class="hidden" aria-expanded="false">TRICKS</button>
 <div id="tricks" class="hidden">
   <h3>RENDERING TRICKS</h3>
-  <label><input type="checkbox" data-k="culling"><span>Only draw what light touches<small>Beam-cone culling (plus braziers and flares). Turn it off to see what it saves.</small></span></label>
+  <label><input type="checkbox" data-k="culling"><span>Only draw what light touches<small>Beam-cone culling (plus braziers and flares). In the ruins, nothing behind a wall is drawn either. Turn it off to see what it saves.</small></span></label>
   <label><input type="checkbox" data-k="fog"><span>Black fog at the beam's edge<small>Hides the cut-off, so nothing visibly pops in.</small></span></label>
   <label><input type="checkbox" data-k="shadows"><span>Lantern shadows<small>One shadow map, aimed where you look. Also carries the lens pattern.</small></span></label>
   <label><input type="checkbox" data-k="proxies"><span>Shadow proxies<small>Detailed trees cast their low-poly shadow.</small></span></label>
@@ -184,8 +194,9 @@
   <div class="kicker">HYPERDOT ARCADE</div>
   <h1 class="title">THE HOLLOW CROWN</h1>
   <div class="sub">LANTERN OF THE DEEP</div>
-  <div class="floor">FLOOR III · THE DEEP WOODS · FIRST PERSON</div>
+  <div class="floor">FLOORS III–IV · THE DEEP WOODS · THE EASTERN RUINS · FIRST PERSON</div>
   <button class="go" id="startBtn">TAKE UP THE LANTERN</button>
+  <button class="go alt" id="startBtn4">BEGIN AT FLOOR IV · THE EASTERN RUINS</button>
   <div class="ctrl" id="ctrlText"></div>
 </div>
 
@@ -194,6 +205,7 @@
   <div class="sub" id="endSub"></div>
   <div id="endStats"></div>
   <button class="go" id="againBtn">AGAIN</button>
+  <button class="go alt" id="menuBtn">TITLE</button>
 </div>
 
 <script>/*__SCRIPT__*/</script>
