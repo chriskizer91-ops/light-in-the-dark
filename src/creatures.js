@@ -45,7 +45,7 @@ function anchorOn(e, rig, boneName, p) {
 }
 function buildVisual(e) {
   if (e.grp) disposeVisual(e);
-  const q = DETAIL[settings.detail].q, rig = getRig(e.type, q), grp = new THREE.Group();
+  const q = DETAIL[settings.detail].q, rig = getRig(e.rig || e.type, q), grp = new THREE.Group();
   const { bones, by, skeleton } = makeSkeleton(rig.def);
   grp.add(bones[0]); // bones live under the group, not the mesh: hiding the body keeps the eyes
   const body = rigMaterial(rig, psx);
@@ -55,7 +55,7 @@ function buildVisual(e) {
   mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true; grp.add(mesh);
   grp.updateMatrixWorld(true); mesh.bind(skeleton);
   Object.assign(e, { grp, mesh, mat: body, glowU: body.userData.glow || null, b: by, tris: rig.geo.userData.tris, eyes: [], eyeMat: null, glow: null, blade: null, bladeMat: null, mouth: null, accentMat: accent, flames: [], flameMat: null });
-  grp.scale.setScalar(DEFS[e.type].scale || 1);
+  grp.scale.setScalar(e.def.scale || 1);
   if (rig.candles) {
     e.flameMat = new THREE.SpriteMaterial({ map: flameTex, color: 0xffc070, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0 });
     for (const c of rig.candles) { const sp = new THREE.Sprite(e.flameMat); sp.userData.s = c.s; sp.userData.ph = Math.random() * 10; anchorOn(e, rig, c.bone, c.pos).add(sp); e.flames.push(sp); }
@@ -80,7 +80,7 @@ function disposeVisual(e) { e.mat.dispose(); if (e.mesh && e.mesh.skeleton) e.me
 export function refreshCreatureDetail() { for (const e of CR.list) buildVisual(e); }
 
 function spawn(s) {
-  const def = DEFS[s.type];
+  const def = s.def ? { ...DEFS[s.type], ...s.def } : DEFS[s.type]; // a spawn can override its kind's numbers (the bandit leader)
   const e = {
     type: s.type, def, x: s.x, z: s.z, r: def.r, hp: def.hp * DF.hp, maxHp: def.hp * DF.hp, speed: def.speed, state: s.camp ? 'camp' : STONE(s) ? 'dormant' : 'wander', stateTime: rr(1, 3),
     path: null, pathTimer: rr(0.2, 0.8), lastKnown: { x: s.x, z: s.z }, facing: s.face !== undefined ? s.face : rr(0, TAU), exposed: 0, exposeFlash: 0,
@@ -89,7 +89,7 @@ function spawn(s) {
     hitOnce: false, attackCd: rr(0.4, 1), hurtFlash: 0, invuln: 0, lightStress: 0, blocking: false, camp: !!s.camp, drainTick: 0, wanderAngle: rr(0, TAU),
     fy: 1.6, gait: rr(0, 10), vel: 0, px: s.x, pz: s.z, recoil: 0, strikeT: 0, look: 0, breathT: mr(0.5, 2), emberT: 0,
     retro: 0, blinkT: mr(2, 6), blinking: 0, losT: 0, los: false, dist: 99, nextSound: mr(1, 4), alive: true, bodyVis: false, light: 0, dying: -1,
-    sy: def.sy, sr: def.sr, grp: null,
+    sy: def.sy, sr: def.sr, grp: null, rig: s.rig || null,
   };
   if (s.camp && LV.camp) e.facing = Math.atan2(LV.camp.z - s.z, LV.camp.x - s.x);
   buildVisual(e);
@@ -108,7 +108,7 @@ export function spawnCreatures() {
   });
   CR.dead = []; CR.list = list.map(spawn);
 }
-export function addCreature(type, x, z) { const e = spawn({ type, x, z }); CR.list.push(e); return e; }
+export function addCreature(type, x, z, o = {}) { const e = spawn({ type, x, z, ...o }); CR.list.push(e); return e; }
 
 // ---------- light at a creature (lantern needs line of sight; braziers and flares don't care) ----------
 function lightAtE(e) { const y = e.type === 'moth' ? e.fy : 0.6; return Math.max(e.los ? lanternLevel(e.x, y, e.z) : 0, worldLevel(e.x, e.z)); }
@@ -203,7 +203,7 @@ export function damageEnemy(e, amount, knock, dir, cause) {
     if (cause === 'flare') { if (e.type === 'leech' || e.type === 'wolf' || e.type === 'hound') exposeEnemy(e, 1.15); else interruptEnemy(e, 0.22); }
     else if (cause === 'pulse') { if (e.type === 'wolf' || e.type === 'hound' || STONE(e)) exposeEnemy(e, STONE(e) ? 2.25 : 1.2); else interruptEnemy(e, 0.18); }
   }
-  if (e.state === 'camp') { e.state = 'chase'; e.stateTime = 2; }
+  if (e.state === 'camp') { e.state = 'chase'; e.stateTime = 2; if (LV.campHold && H.campFight) H.campFight(); } // struck before their leader spoke: the camp rises
   if (STONE(e) && e.state === 'dormant') wake(e);
   if (e.hp <= 0) kill(e, dir);
   return true;
@@ -238,7 +238,8 @@ function updateEnemy(e, dt) {
     if (e.state === 'wake') { if (e.stateTime <= 0) { e.state = 'chase'; e.stateTime = 1.4; e.lastKnown = { x: P.x, z: P.z }; } return; }
   }
   if (e.state === 'camp') {
-    if (sees && dP < def.sense * 0.8) { e.state = 'chase'; e.stateTime = 1.5; sfx.shout(e); H.say('Armed. Careful.'); for (const o of CR.list) if (o.camp && o.state === 'camp') { o.state = 'chase'; o.stateTime = 1.5; o.lastKnown = { x: P.x, z: P.z }; } }
+    // (while their leader stands by the fire, he does the talking)
+    if (sees && dP < def.sense * 0.8 && !LV.campHold) { e.state = 'chase'; e.stateTime = 1.5; sfx.shout(e); H.say('Armed. Careful.'); for (const o of CR.list) if (o.camp && o.state === 'camp') { o.state = 'chase'; o.stateTime = 1.5; o.lastKnown = { x: P.x, z: P.z }; } }
     else return;
   }
   if (sees) {
@@ -458,6 +459,15 @@ function animDeath(e, dt) {
 // ---------- per frame: AI, animation, eyeshine, culling, particles ----------
 let pxPerM = 0.005;
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
+// a creature that has agreed to go: it gets up and walks off into the dark, away from you, and is gone
+function leave(e, dt) {
+  if (G.state !== 'playing' || G.paused) return false;
+  if (e.state === 'camp') { e.state = 'wander'; e.leaveA = Math.atan2(e.z - P.z, e.x - P.x) + rr(-0.6, 0.6); }
+  e.leaving += dt; e.windup = 0; e.blocking = false;
+  if (e.leaving > 0.8) { const sp = 1.6, px = e.x, pz = e.z; moveWithCollisions(e, Math.cos(e.leaveA) * sp, Math.sin(e.leaveA) * sp, dt); e.facing = lerpAngle(e.facing, e.leaveA, clamp(dt * 4, 0, 1)); if (Math.hypot(e.x - px, e.z - pz) < sp * dt * 0.3) e.leaveA += dt * 2; }
+  if (e.leaving > 7 || (e.leaving > 2 && e.dist > 14)) { e.alive = false; CR.list.splice(CR.list.indexOf(e), 1); disposeVisual(e); return true; }
+  return false;
+}
 export function updateCreatures(dt, camera) {
   const active = G.state === 'playing' && !G.paused && !window.__freezeAI; // tests can freeze the AI and still watch the animation
   const T = performance.now() / 1000;
@@ -468,7 +478,8 @@ export function updateCreatures(dt, camera) {
     const dx = P.x - e.x, dz = P.z - e.z; e.dist = Math.hypot(dx, dz) || 0.001;
     e.losT -= dt; if (e.losT <= 0) { e.losT = 0.12 + Math.random() * 0.06; e.los = e.dist < 45 && lineOfSight(P.x, P.z, e.x, e.z); }
     e.light = lightAtE(e);
-    if (active) updateEnemy(e, dt);
+    if (e.leaving !== undefined) { if (leave(e, dt)) continue; } // talked round: off to the village
+    else if (active) updateEnemy(e, dt);
     if (!e.alive) continue;
     if (dt > 0) { const v = Math.hypot(e.x - e.px, e.z - e.pz) / dt; e.vel = lerp(e.vel, v, damp(8, dt)); }
     e.px = e.x; e.pz = e.z;

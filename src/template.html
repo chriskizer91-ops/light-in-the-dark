@@ -59,6 +59,8 @@
   #voice.merchant .flame { background:radial-gradient(circle at 50% 70%, #e8ecf4, #8a90a8 60%, #3a3e50); box-shadow:0 0 8px #8890b0; }
   #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; transition:opacity .9s; z-index:3; }
   #fade.on { opacity:1; }
+  .pickRow { display:flex; gap:6px; justify-content:center; margin-top:0; }
+  .go.alt.pick { width:44px; padding:0; font-size:18px; letter-spacing:0; }
   .go.alt { height:40px; font-size:12px; letter-spacing:.2em; background:rgba(24,22,28,.75); border-color:rgba(200,196,210,.4); color:#d8d4e0; margin-top:0; }
   #voice .flame { flex:none; width:10px; height:15px; border-radius:50% 50% 45% 45%/60% 60% 40% 40%; background:radial-gradient(circle at 50% 70%, #fff3c8, #ffa640 60%, #b04a10); box-shadow:0 0 10px #ff9a40; }
   #hint { position:absolute; left:50%; bottom:calc(max(22px,env(safe-area-inset-bottom)) + 40px); transform:translateX(-50%); max-width:80vw; text-align:center;
@@ -222,7 +224,7 @@
   <button class="go" id="startBtn">TAKE UP THE LANTERN</button>
   <button class="go alt" id="diffBtn">DIFFICULTY: STANDARD</button>
   <button class="go alt" id="ringBtn">LANTERN: A BEAM (ONE DIRECTION)</button>
-  <button class="go alt" id="startBtn4">BEGIN AT FLOOR IV · THE EASTERN RUINS</button>
+  <div class="pickRow"><button class="go alt" id="startBtn4">BEGIN AT FLOOR III · THE DEEP WOODS</button><button class="go alt pick" id="pickBtn" aria-label="another floor">›</button></div>
   <div class="ctrl" id="ctrlText"></div>
 </div>
 

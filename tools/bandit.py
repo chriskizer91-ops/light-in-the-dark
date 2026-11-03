@@ -47,7 +47,7 @@ def shield_decal(N=256):
     cx, cy, a, b = 304, 661, 69, 74                # the shield's outline in pose 4
     yy, xx = np.mgrid[0:N, 0:N]; u = (xx + 0.5 - N / 2) / (N / 2); v = (yy + 0.5 - N / 2) / (N / 2)
     return np.stack([ndi.map_coordinates(im[..., k], [cy + v * b, cx + u * a], order=1) for k in range(3)], -1)
-if __name__ == '__main__':
+def bandit():
     clean()
     atlas.build('bandit', 'CR12_bandit_clean', ['front', 'side', 'back', 'tq'], ['front', 'side', 'back'], opts={'flip': True}, extras=[('shield', shield_decal())])
     # metric extents of the three silhouettes, in projectUV's view coordinates [h0, h1, d0, d1] (d = -y)
@@ -60,3 +60,33 @@ if __name__ == '__main__':
         ext[view] = [round(h0, 4), round(h1, 4), round(-(GROUND - c['y0']) / PPM, 4), round(-(GROUND - c['y1']) / PPM, 4)]
     p = os.path.join(atlas.OUT, 'bandit.json'); j = json.load(open(p)); j['ext'] = ext; json.dump(j, open(p, 'w'), indent=1)
     print('ext', ext)
+
+# ---------------------------------------------------------------------------------------------------
+# The bandit leader (CR15): the same body as the bandit, scaled up (he stands 2.0 m to the point of his
+# hood, the bandit 1.86), wearing his own sheet. The side view is a left profile with his sheathed sword
+# crossing it; that is painted out (he fights with it drawn, a modelled blade). Extents go into the
+# bandit's frame (÷ LS), so the same body takes this sheet.
+LPPM, LGROUND, LS = 441.0, 911.0, 2.0 / 1.86
+LAX = {'front': 238.6, 'side': 552.0, 'back': 843.6}
+LZ = 0.01  # the legs' centre in the side view (h)
+def leader():
+    im = cv2.imread(REF + 'CR15_bandit_leader_sheet.png'); m = np.zeros(im.shape[:2], np.uint8)
+    P = lambda h, y: (int(LAX['side'] + h * LPPM), int(LGROUND - y * LPPM))
+    cv2.line(m, P(-0.215, 1.245), P(0.248, 0.255), 255, int(0.06 * LPPM))   # scabbard and blade
+    cv2.line(m, P(-0.2, 1.12), P(-0.1, 1.05), 255, int(0.04 * LPPM))       # the hilt's guard
+    m = cv2.dilate(m, np.ones((5, 5), np.uint8))
+    out = cv2.inpaint(im, m, 5, cv2.INPAINT_TELEA)
+    cv2.imwrite(REF + 'CR15_leader_clean.png', out)
+    atlas.build('leader', 'CR15_leader_clean', ['front', 'side', 'back'], ['front', 'side', 'back'], opts={'xmax': 1010})
+    _, lab, comps = segment(REF + 'CR15_leader_clean.png', xmax=1010)
+    comps = sorted(sorted(comps, key=lambda c: -c['area'])[:3], key=lambda c: c['x0'])
+    ext = {}
+    for view, c in zip(['front', 'side', 'back'], comps):
+        h0, h1 = (c['x0'] - LAX[view]) / LPPM, (c['x1'] - LAX[view]) / LPPM
+        if view == 'side': h0, h1 = h0 - LZ, h1 - LZ   # projectUV's side coordinate is -z: legs at z = 0
+        ext[view] = [round(v / LS, 4) for v in (h0, h1, -(LGROUND - c['y0']) / LPPM, -(LGROUND - c['y1']) / LPPM)]
+    p = os.path.join(atlas.OUT, 'leader.json'); j = json.load(open(p)); j['ext'] = ext; json.dump(j, open(p, 'w'), indent=1)
+    print('leader ext', ext)
+
+if __name__ == '__main__':
+    for n in (sys.argv[1:] or ['bandit', 'leader']): globals()[n]()

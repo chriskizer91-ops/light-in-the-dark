@@ -7,6 +7,7 @@ import guardian from './guardian.webp'; import guardianJ from './guardian.json';
 import hound from './hound.webp'; import houndJ from './hound.json';
 import wolf from './wolf.webp'; import wolfJ from './wolf.json';
 import bandit from './bandit.webp'; import banditJ from './bandit.json';
+import leader from './leader.webp'; import leaderJ from './leader.json';
 // the village people (tools/villagers.py): atlases, and fig_* = their silhouettes measured per height
 import maren from './maren.webp'; import marenJ from './maren.json'; import marenF from './fig_maren.json';
 import sev from './sev.webp'; import sevJ from './sev.json'; import sevF from './fig_sev.json';
@@ -14,7 +15,7 @@ import lyn from './lyn.webp'; import lynJ from './lyn.json'; import lynF from '.
 import ged from './ged.webp'; import gedJ from './ged.json'; import gedF from './fig_ged.json';
 import girl from './girl.webp'; import girlJ from './girl.json'; import girlF from './fig_girl.json';
 export const ATLAS = {
-  sentinel: { url: sentinel, glowUrl: sentinelG, ...sentinelJ }, guardian: { url: guardian, glowUrl: guardianG, ...guardianJ }, hound: { url: hound, ...houndJ }, wolf: { url: wolf, ...wolfJ }, bandit: { url: bandit, ...banditJ },
+  sentinel: { url: sentinel, glowUrl: sentinelG, ...sentinelJ }, guardian: { url: guardian, glowUrl: guardianG, ...guardianJ }, hound: { url: hound, ...houndJ }, wolf: { url: wolf, ...wolfJ }, bandit: { url: bandit, ...banditJ }, leader: { url: leader, ...leaderJ },
   maren: { url: maren, ...marenJ }, sev: { url: sev, ...sevJ }, lyn: { url: lyn, ...lynJ }, ged: { url: ged, ...gedJ }, girl: { url: girl, ...girlJ },
 };
 export const FIG = { maren: marenF, sev: sevF, lyn: lynF, ged: gedF, girl: girlF };

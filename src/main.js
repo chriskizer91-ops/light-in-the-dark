@@ -138,7 +138,13 @@ function showEnd() {
   G.state = 'ended'; showViewModels(false);
 }
 $('startBtn').addEventListener('click', () => { G.state = 'ended'; startGame(1); });
-$('startBtn4').addEventListener('click', () => { G.state = 'ended'; startGame(4); });
+// begin partway down (to try a floor without walking the ones above): › picks which
+const PICK = [2, 3, 4], ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+let pickFloor = 3;
+const pickLabel = () => { $('startBtn4').textContent = 'BEGIN AT FLOOR ' + ROMAN[pickFloor] + ' · ' + FLOORS[pickFloor].title; };
+$('startBtn4').addEventListener('click', () => { G.state = 'ended'; startGame(pickFloor); });
+$('pickBtn').addEventListener('click', (e) => { e.stopPropagation(); pickFloor = PICK[(PICK.indexOf(pickFloor) + 1) % PICK.length]; pickLabel(); });
+pickLabel();
 $('againBtn').addEventListener('click', () => { G.state = 'ended'; startGame(G.endFloor || 1); });
 $('menuBtn').addEventListener('click', () => toMenu());
 $('pauseOv').addEventListener('click', () => { A.resume(); tryLock(); });

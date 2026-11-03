@@ -5,6 +5,7 @@ import { NEAR_R } from './lantern.js';
 import { getRig, makeSkeleton, rigMaterial } from './rigs.js';
 import { G, P, H, S } from './state.js';
 import { sfx } from './audio.js';
+import { CR, addCreature } from './creatures.js';
 
 // =====================================================================
 //  PEOPLE — the 2D Crown's villagers, with their own words. Elder Maren
@@ -14,8 +15,8 @@ import { sfx } from './audio.js';
 //  and in the Gray Forest a girl is hiding. Walk up to someone, face them
 //  and press USE to talk. Lyn, once she joins, follows you floor to floor.
 // =====================================================================
-const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL' };
-const TONE = { maren: 0.62, sev: 0.6, lyn: 0.6, ged: 0.6, girl: 0.62 };
+const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL', leader: 'BANDIT LEADER' };
+const TONE = { maren: 0.62, sev: 0.6, lyn: 0.6, ged: 0.6, girl: 0.62, leader: 0.42 };
 const close = { text: 'Leave.', close: true };
 const D = {
   maren_initial: {
@@ -81,8 +82,40 @@ const D = {
     done: () => { if (S.savedChild) return; S.savedChild = true; P.speedK += 0.06; P.dr += 0.03; sfx.relic(); H.hint('Child’s Charm — given in gratitude. Quicker feet, a little less hurt.', 3.4); const n = NPCS.list.find((q) => q.id === 'girl'); if (n) n.leaving = 1; },
     choices: [{ text: 'Take her hand and continue.', close: true }],
   },
+  // Floor III: the camp by the fire (the 2D Crown's bandit_encounter). Talking them round needs Ged's word in the village.
+  leader_encounter: {
+    who: 'leader', lines: ['“Another Warden.” The leader sneers. “The last one had better armor. Drop your coins and walk away. Or don’t.”'],
+    choices: [
+      { text: 'Fight them.', fn: () => { S.clearedBandits = true; campFight(); } },
+      { text: '“The curse will kill you before I do. Come to the village instead.”', next: 'leader_persuade', req: () => S.helpedFarmer, why: () => 'needs: you helped the farmer' },
+    ],
+  },
+  leader_persuade: {
+    who: 'leader', lines: ['…The village would take us? After what we’ve done to their caravans?', 'You’re either foolish or honest. I can’t tell. But the gray is spreading and we can’t eat bark forever. Fine. We’ll go.'],
+    done: () => { if (S.banditsPersuaded) return; S.clearedBandits = S.banditsPersuaded = true; S.coins += 15; sfx.relic(); H.hint('+15 coins. The bandits leave for the village.', 3); campLeave(); },
+    choices: [{ text: 'Continue.', close: true }],
+  },
 };
-const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found' })[id];
+// the camp's answer: they all come for you, the leader with them (a heavier bandit, his own sheet) ...
+function campFight() {
+  if (!LV.campHold) return; LV.campHold = false;
+  const n = NPCS.list.find((q) => q.id === 'leader');
+  if (n) {
+    const e = addCreature('bandit', n.x, n.z, { rig: 'leader', face: n.facing, def: { name: 'Bandit Leader', hp: 75, damage: 15, speed: 3.7, scale: 2.0 / 1.86, sy: 1.0, sr: 1.12 } });
+    e.state = 'chase'; e.stateTime = 2; e.lastKnown = { x: P.x, z: P.z };
+    W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1);
+  }
+  for (const o of CR.list) if (o.camp && o.state === 'camp') { o.state = 'chase'; o.stateTime = 1.5; o.lastKnown = { x: P.x, z: P.z }; }
+  sfx.shout && sfx.shout({ x: n ? n.x : P.x, z: n ? n.z : P.z }); H.say('Armed. Careful.');
+}
+H.campFight = campFight;
+// ... or they get up from the fire and walk off toward the village
+function campLeave() {
+  LV.campHold = false;
+  for (const o of CR.list) if (o.camp) o.leaving = 0;
+  const n = NPCS.list.find((q) => q.id === 'leader'); if (n) { n.leaving = 0.001; n.walkOff = Math.atan2(n.z - P.z, n.x - P.x); }
+}
+const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found', leader: LV.campHold ? 'leader_encounter' : null })[id];
 
 export const NPCS = { list: [], lyn: null };
 const _d = new THREE.Vector3();
@@ -94,6 +127,7 @@ function makeVisual(n) {
   const body = rigMaterial(rig, psx); body.color.setScalar(TONE[n.id]);
   const prop = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 50, specular: 0x887766, dithering: true }));
   const mesh = new THREE.SkinnedMesh(rig.geo, [body, prop, prop]); mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true; grp.add(mesh);
+  if (n.id === 'leader') grp.scale.setScalar(2.0 / 1.86); // he stands a head over his men
   grp.updateMatrixWorld(true); mesh.bind(skeleton); W.group.add(grp);
   W.disposables.push(body, prop, { dispose: () => skeleton.dispose() });
   Object.assign(n, { grp, mesh, mat: body, b: by, t: Math.random() * 10, look: 0 });
@@ -154,7 +188,7 @@ function render(fresh) {
   });
   document.getElementById('dlgMore').style.visibility = !lastLine && typedAll ? 'visible' : 'hidden';
   document.getElementById('dlgCoins').textContent = d.shop ? `◈ ${S.coins} coins` : '';
-  if (fresh) document.getElementById('dlgTxt').textContent = '';
+  document.getElementById('dlgTxt').textContent = d.lines[t.line].slice(0, Math.floor(t.typed)); // (skipping the typing shows the whole line)
 }
 function finishTalk() { G.talk = null; G.paused = false; document.body.classList.remove('talking'); document.getElementById('dlg').classList.add('hidden'); }
 function choose(i) {
@@ -192,12 +226,22 @@ export function updateNPCs(dt, live) {
     const dx = P.x - n.x, dz = P.z - n.z, dist = Math.hypot(dx, dz);
     if (n.companion && live) follow(n, dt, dist);
     const talking = G.talk && G.talk.n === n, toP = Math.atan2(dz, dx);
-    if (talking || (dist < 3.2 && !n.companion)) n.facing = lerpAngle(n.facing, toP, clamp(dt * 3, 0, 1));
-    // the girl, once she has given you the charm, slips away home
-    if (n.leaving) { n.leaving += dt; if (n.leaving > 2.4) { W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1); continue; } }
+    if (talking || (dist < (n.id === 'leader' ? 12 : 3.2) && !n.companion && !n.walkOff)) n.facing = lerpAngle(n.facing, toP, clamp(dt * 3, 0, 1));
+    // the bandit leader steps up and speaks when you come into his firelight (once each time you come near)
+    if (n.id === 'leader' && live && LV.campHold && !n.leaving) {
+      if (n.cool && dist > 9) n.cool = false;
+      if (!n.cool && !G.talk && dist < 6.5 && lineOfSight(P.x, P.z, n.x, n.z)) { n.cool = true; openTalk(n); }
+    }
+    // the girl, once she has given you the charm, slips away home; a man talked round walks off into the dark
+    if (n.walkOff !== undefined && live) {
+      n.leaving += dt; const px = n.x, pz = n.z;
+      if (n.leaving > 0.6) { moveWithCollisions(n, Math.cos(n.walkOff) * 1.6, Math.sin(n.walkOff) * 1.6, dt); n.facing = lerpAngle(n.facing, n.walkOff, clamp(dt * 4, 0, 1)); if (Math.hypot(n.x - px, n.z - pz) < 1.6 * dt * 0.3) n.walkOff += dt * 2; }
+      n.vel = lerp(n.vel || 0, Math.hypot(n.x - px, n.z - pz) / Math.max(dt, 1e-4), damp(8, dt));
+      if (n.leaving > 7 || (n.leaving > 2 && dist > 14)) { W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1); continue; }
+    } else if (n.leaving) { n.leaving += dt; if (n.leaving > 2.4) { W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1); continue; } }
     n.grp.position.set(n.x, 0, n.z); n.grp.rotation.y = rotYOfHeading(n.facing);
     animate(n, dt, T, dist, talking);
-    n.mat.color.setScalar(TONE[n.id] * clamp(Math.pow(dist / 4.5, 0.7), 0.4, 1) * (n.leaving ? Math.max(0, 1 - n.leaving / 2.4) : 1));
+    n.mat.color.setScalar(TONE[n.id] * clamp(Math.pow(dist / 4.5, 0.7), 0.4, 1) * (n.leaving && n.walkOff === undefined ? Math.max(0, 1 - n.leaving / 2.4) : 1));
     n.mesh.visible = !settings.culling || dist < NEAR_R + 0.8 || litTest(n.x, 1.0, n.z, 1.1);
   }
 }
@@ -209,7 +253,7 @@ function animate(n, dt, T, dist, talking) {
   const want = dist < 7 ? clamp(Math.atan2(Math.sin(Math.atan2(P.z - n.z, P.x - n.x) - n.facing), Math.cos(Math.atan2(P.z - n.z, P.x - n.x) - n.facing)), -0.9, 0.9) : Math.sin(n.t * 0.3) * 0.3;
   n.look = lerp(n.look, want, k); b.head.rotation.y = -n.look * 0.6; b.neck.rotation.y = -n.look * 0.4;
   rx(b.head, talking ? 0.06 * Math.sin(n.t * 5) : n.id === 'maren' ? 0.12 : 0, k);
-  const s = n.companion ? clamp(n.vel / 3.4, 0, 1.4) : 0, ph = (n.gait = (n.gait || 0) + dt * (1 + s * 7));
+  const s = n.companion || n.walkOff !== undefined ? clamp((n.vel || 0) / 3.4, 0, 1.4) : 0, ph = (n.gait = (n.gait || 0) + dt * (1 + s * 7));
   rx(b.thL, -Math.sin(ph) * 0.5 * s, k * 2); rx(b.thR, Math.sin(ph) * 0.5 * s, k * 2);
   rx(b.knL, Math.max(0, -Math.cos(ph)) * 0.7 * s, k * 2); rx(b.knR, Math.max(0, Math.cos(ph)) * 0.7 * s, k * 2);
   b.root.position.y = Math.abs(Math.sin(ph)) * 0.035 * s;

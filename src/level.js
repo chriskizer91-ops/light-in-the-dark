@@ -222,6 +222,8 @@ function generateWoods(seedVal, floor) {
     const n = ri(2, 3);
     for (let i = 0; i < n; i++) { const a = (i / n) * 6.283 + rr(-0.3, 0.3); LV.spawns.push({ type: 'bandit', x: c.x + Math.cos(a) * 2.6, z: c.z + Math.sin(a) * 2.6, camp: true }); }
     LV.decorations.push({ kind: 'camp', x: c.x, z: c.z });
+    // their leader stands by the fire between two of them, and does the talking when you walk up (the 2D Crown's bandit_encounter)
+    for (const k of [0.5, 1.5, 2.5, 0.25, 0.75]) { const a = (k / n) * 6.283, x = c.x + Math.cos(a) * 2.2, z = c.z + Math.sin(a) * 2.2; if (isWalkable(toTile(x), toTile(z))) { LV.npcs.push({ id: 'leader', x, z, face: a }); LV.campHold = true; break; } }
   }
   // the last fire: a lit brazier in the first clearing, so you start inside a little light
   { const p = roomWalkableCenter(rooms[0]); for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1]]) if (isOpenArea(p.x + dx, p.y + dy)) { placeBrazier(p.x + dx, p.y + dy, true); break; } }

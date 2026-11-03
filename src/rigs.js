@@ -454,8 +454,9 @@ RigBuilder.prototype.addRaw = function (g, bind, colorAt, slot = 0) {
 //  then the sheet is projected on (tools/bandit.py cleans the sword and shield
 //  out of the side view; the shield's face is its own decal, from CR13).
 // =====================================================================
-function bandit(q) {
-  srand(4004 + q);
+function bandit(q, leader = false) {
+  srand(4004 + q + (leader ? 50 : 0));
+  const AT = ATLAS[leader ? 'leader' : 'bandit']; // the leader: the same body under his own sheet (CR15), no shield, a longer cloak, a longer blade
   const def = bones([['root', null, 0, 0, 0], ['hips', 'root', 0, 0.95, 0.05], ['spine', 'hips', 0, 1.12, 0.05], ['chest', 'spine', 0, 1.32, 0.05], ['neck', 'chest', 0, 1.5, 0.045], ['head', 'neck', 0, 1.62, 0.05],
     ['shL', 'chest', 0.235, 1.42, 0.01], ['elL', 'shL', 0.31, 1.13, -0.01], ['hdL', 'elL', 0.32, 1.0, 0.2], ['shR', 'chest', -0.235, 1.42, 0.02], ['elR', 'shR', -0.32, 1.15, 0.01], ['hdR', 'elR', -0.395, 0.91, 0.05],
     ['thL', 'hips', 0.1, 0.92, 0.06], ['knL', 'thL', 0.15, 0.48, 0.02], ['ftL', 'knL', 0.175, 0.1, -0.02], ['thR', 'hips', -0.1, 0.92, 0.06], ['knR', 'thR', -0.155, 0.48, 0.02], ['ftR', 'knR', -0.18, 0.1, -0.02],
@@ -486,7 +487,7 @@ function bandit(q) {
   B.add(loft([{ p: [0, 1.46, 0.05], r: [0.1, 0.095] }, { p: [0, 1.53, 0.06], r: [0.085, 0.085] }, { p: [0, 1.58, 0.06], r: [0.07, 0.07] }], { radial, rings: 5, ref: [0, 0, 1] }), (x, y) => along1([[1.5, 'neck'], [1.58, 'head']])(y), vary(linen, 0.2));
   B.add(blob(d, (x, y, z) => [x * (1 - 0.15 * Math.max(0, z)), y, z]), 'head', vary(skin, 0.15), { matrix: M(0, 1.665, 0.05, 0, 0, 0, 0.082, 0.115, 0.098) });
   B.add(blob(1), 'head', vary(skin, 0.1), { matrix: M(0, 1.655, 0.148, -0.25, 0, 0, 0.016, 0.03, 0.02) }); // nose
-  for (let i = 0, n = Q(q, [4, 12, 22, 34]); i < n; i++) { const a = rr(-1.1, 1.1), p = new V3(Math.sin(a) * 0.07, rr(1.56, 1.62), 0.05 + Math.cos(a) * 0.085); tuft(p, new V3(Math.sin(a) * 0.3, -1, 0.3).normalize(), rr(0.035, 0.06), 0.014, 'head', vary(C(0x4a3e34), 0.3, 40)); }
+  for (let i = 0, n = leader ? 0 : Q(q, [4, 12, 22, 34]); i < n; i++) { const a = rr(-1.1, 1.1), p = new V3(Math.sin(a) * 0.07, rr(1.56, 1.62), 0.05 + Math.cos(a) * 0.085); tuft(p, new V3(Math.sin(a) * 0.3, -1, 0.3).normalize(), rr(0.035, 0.06), 0.014, 'head', vary(C(0x4a3e34), 0.3, 40)); }
   // hood: a shell around the head, its opening pushed back off the face, a peak at the back
   B.add(blob(d + 1, (x, y, z) => { const open = z > 0.3 && y < 0.5 && Math.abs(x) < 0.7, peak = Math.max(0, y - 0.2) * Math.max(0, -z - 0.1) * 0.5; return [x * (1 - 0.18 * Math.max(0, y)), y + peak, open ? 0.3 + (z - 0.3) * 0.12 : z - peak * 0.4]; }), 'head', vary(cloak, 0.25), { matrix: M(0, 1.7, 0.035, -0.1, 0, 0, 0.138, 0.158, 0.15) });
   // fur mantle: a shaggy cape over the shoulders and back, open at the chest, its edge hanging in tufts
@@ -503,7 +504,7 @@ function bandit(q) {
   };
   const mantP = [[1.6, 0.13, 0.12, 0.03], [1.52, 0.255, 0.18, 0.005], [1.42, 0.31, 0.195, -0.01], [1.25, 0.32, 0.2, -0.02]];
   const mAt = shell(mantP, 2.5, Q(q, [4, 6, 9, 12]), Q(q, [12, 20, 28, 36]), 1.6, (a) => lerp(1.22, 1.33, Math.pow(Math.abs(a) / 2.5, 2)), (u) => -(noise(u * 41, 3, 1) - 0.3) * 0.08, 'chest', vary(fur, 0.4, 30));
-  for (let i = 0, n = Q(q, [8, 20, 34, 50]); i < n; i++) {
+  for (let i = 0, n = leader ? 0 : Q(q, [8, 20, 34, 50]); i < n; i++) {
     const a = rr(-2.4, 2.4), y = rr(1.27, 1.4), [rx, rz, cz] = mAt(y), p = new V3(Math.sin(a) * rx * 0.97, y, cz - Math.cos(a) * rz * 0.97), out = new V3(Math.sin(a) / rx, 0, -Math.cos(a) / rz).normalize();
     tuft(p, out.multiplyScalar(0.25).add(new V3(0, -1, 0)).normalize(), rr(0.04, 0.075), 0.016, 'chest', vary(fur, 0.4, 30));
   }
@@ -520,7 +521,7 @@ function bandit(q) {
     const prof = [[1.47, 0.2, 0.12, -0.05], [1.4, 0.29, 0.13, -0.085], [1.2, 0.325, 0.135, -0.075], [0.9, 0.34, 0.14, -0.08], [0.6, 0.345, 0.145, -0.09], [0.3, 0.345, 0.15, -0.095]];
     const at = (y) => { let i = 0; while (i < prof.length - 2 && y < prof[i + 1][0]) i++; const [y0, ...a] = prof[i], [y1, ...b] = prof[i + 1], k = clamp((y - y0) / (y1 - y0), 0, 1); return a.map((v, j) => lerp(v, b[j], k)); };
     for (let i = 0; i <= su; i++) for (let j = 0; j <= sv; j++) {
-      const u = i / su, v = j / sv, a = lerp(-A0, A0, u), hem = lerp(0.345, 0.48, Math.pow(Math.abs(a) / A0, 1.5)), y0 = lerp(1.47, hem, v);
+      const u = i / su, v = j / sv, a = lerp(-A0, A0, u), hem = leader ? lerp(0.26, 0.36, Math.pow(Math.abs(a) / A0, 1.5)) : lerp(0.345, 0.48, Math.pow(Math.abs(a) / A0, 1.5)), y0 = lerp(1.47, hem, v);
       const rag = v > 0.82 ? -(noise(u * 37, 1, 2) - 0.3) * 0.12 * (v - 0.82) / 0.18 : 0, y = y0 + rag, [rx, rz, cz] = at(y0);
       pos.push(Math.sin(a) * rx, y, cz - Math.cos(a) * rz + 0.012 * Math.sin(u * 47) * v);
     }
@@ -529,16 +530,18 @@ function bandit(q) {
     B.add(g, (x, y, z) => along1([[1.0, 'cloakB'], [1.44, 'cloakA']])(y), vary(cloak, 0.3, 16));
   }
   // the shield, strapped to the left forearm: its face is a picture of its own (CR13, decal)
-  const SH = ATLAS.bandit && ATLAS.bandit.views.shield, sc = new V3(0.39, 0.93, 0.08), sn = new V3(0.95, 0, 0.31).normalize(), sR = 0.215;
+  const SH = !leader && ATLAS.bandit && ATLAS.bandit.views.shield, sc = new V3(0.39, 0.93, 0.08), sn = new V3(0.95, 0, 0.31).normalize(), sR = 0.215;
   const e1 = new V3(0, 1, 0).cross(sn).normalize(), e2 = new V3(0, 1, 0); // e1: to the right, seen from outside
   const decal = SH ? (x, y, z) => { _P.set(x, y, z).sub(sc); const u = _P.dot(e1) / sR, v = _P.dot(e2) / sR; return [lerp(SH[0], SH[2], 0.5 + 0.5 * u * 0.97), lerp(SH[1], SH[3], 0.5 - 0.5 * v * 0.97)]; } : null;
   const onShield = (g, depth) => { const m = new THREE.Matrix4().makeBasis(e1, e2, sn); m.setPosition(sc.clone().addScaledVector(sn, depth)); return m; };
   const disc = new THREE.CylinderGeometry(sR, sR, 0.026, Q(q, [12, 20, 28, 36]), 1); disc.rotateX(Math.PI / 2);
+  if (!leader) {
   B.add(disc, 'elL', vary(wood, 0.35, 30), { matrix: onShield(disc, 0), decal });
   B.add(blob(d, (x, y, z) => [x, y, z < 0 ? z * 0.2 : z]), 'elL', iron, { matrix: onShield(null, 0.013).multiply(new THREE.Matrix4().makeScale(0.055, 0.055, 0.035)), decal });   // the boss
   B.add(new THREE.TorusGeometry(sR, 0.011, 4, Q(q, [12, 20, 28, 36])), 'elL', iron, { matrix: onShield(null, 0.008), decal });                                                         // the rim
+  }
   // the sword in the right hand, hanging point-down and forward as drawn: a guard lifts it at the player
-  const sd = new V3(0.086, -0.83, 0.54).normalize(), guard = new V3(-0.395, 0.86, 0.1), sl = 0.52, mid = guard.clone().addScaledVector(sd, sl / 2);
+  const sd = new V3(0.086, -0.83, 0.54).normalize(), guard = new V3(-0.395, 0.86, 0.1), sl = leader ? 0.66 : 0.52, mid = guard.clone().addScaledVector(sd, sl / 2);
   B.add(new THREE.BoxGeometry(0.012, sl, 0.04, 1, Q(q, [2, 6, 10, 14]), 1), 'hdR', (x, y, z, nx) => shade(steel, Math.abs(nx) > 0.7 ? 1 : 0.7), { slot: 2, matrix: along(mid, sd) });
   B.add(cone(4, 0.02, 0.05), 'hdR', steel, { slot: 2, matrix: along(guard.clone().addScaledVector(sd, sl), sd, 0.3, 1, 1) });
   B.add(new THREE.BoxGeometry(0.026, 0.022, 0.15), 'hdR', vary(C(0x6a6050), 0.2), { slot: 2, matrix: along(guard, sd) }); // crossguard, across the blade
@@ -546,7 +549,7 @@ function bandit(q) {
   B.add(blob(1), 'hdR', steel, { slot: 2, matrix: M(...guard.clone().addScaledVector(sd, -0.135).toArray(), 0, 0, 0, 0.022, 0.022, 0.022) }); // pommel
   const bladePos = guard.clone().addScaledVector(sd, 0.3).toArray();
   return { def, geo: B.build(), eyes: null, height: 1.86, roughness: 0.88, side: THREE.DoubleSide, accent: 'steel', bladeBone: 'hdR', bladePos,
-    uvOpts: { ext: ATLAS.bandit && ATLAS.bandit.ext } };
+    uvOpts: { ext: AT && AT.ext } };
 }
 
 // =====================================================================
@@ -851,9 +854,9 @@ function figure(q, who) {
   return { def, geo: B.build(), eyes: null, height: H, roughness: 0.88, side: THREE.FrontSide, accent: 'steel', person: true };
 }
 
-const BUILDERS = { wolf, leech, moth, bandit, sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound, maren: (q) => figure(q, 'maren'), sev: (q) => figure(q, 'sev'), lyn: (q) => figure(q, 'lyn'), ged: (q) => figure(q, 'ged'), girl: (q) => figure(q, 'girl') };
+const BUILDERS = { wolf, leech, moth, bandit: (q) => bandit(q, false), leader: (q) => bandit(q, true), sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound, maren: (q) => figure(q, 'maren'), sev: (q) => figure(q, 'sev'), lyn: (q) => figure(q, 'lyn'), ged: (q) => figure(q, 'ged'), girl: (q) => figure(q, 'girl') };
 const cache = {};
-export const TEXTURED = new Set(['wolf', 'bandit', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl']); // leech: its atlas is built (tools/atlas.py), body not yet refit
+export const TEXTURED = new Set(['wolf', 'bandit', 'leader', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl']); // leech: its atlas is built (tools/atlas.py), body not yet refit
 export function getRig(type, q) {
   const k = type + q;
   if (!cache[k]) {
