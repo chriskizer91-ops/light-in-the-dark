@@ -168,6 +168,7 @@ export function generateLevel(seedVal, floor = 3) {
   if (floor === 1) generateVillage(seedVal);
   else if (floor === 4) generateRuins(seedVal);
   else if (floor === 5) generateRuinsInner(seedVal);
+  else if (floor === 6) generateThrone(seedVal);
   else generateWoods(seedVal, floor);
   if (!LV.npcs) LV.npcs = [];
   if (!LV.trails) LV.trails = [];
@@ -483,6 +484,44 @@ function generateRuins(seedVal) {
   // nothing may sit in or right beside the stairwell
   const clear = (o) => Math.hypot(o.x - LV.exit.x, o.z - LV.exit.z) > 3.2;
   LV.pickups = LV.pickups.filter(clear); LV.secrets = LV.secrets.filter(clear); LV.spawns = LV.spawns.filter(clear); LV.braziers = LV.braziers.filter(clear);
+  computeDepth();
+  return LV;
+}
+
+// =====================================================================
+//  FLOOR VI — THE HOLLOW THRONE (the 2D Crown's generateThroneFloor, at
+//  three quarters of its size): a short approach, a round throne room ringed
+//  with pillars, three alcoves with braziers and supplies, and the King.
+//  No way down: this is where it ends. The door seals if you fight him.
+// =====================================================================
+function generateThrone(seedVal) {
+  const w = 60, h = 60, cx = 30, cy = 34;
+  LV = {
+    w, h, seed: seedVal, floor: 6, solid: true, name: 'THE HOLLOW THRONE', numeral: 'VI', holeTiles: [], npcs: [],
+    tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
+    rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null, story: { murals: [], plaques: [] },
+  };
+  carveRect(27, 3, 6, 5); carveCircle(30, 11, 4); carveRect(28, 14, 4, 9);   // the approach
+  carveCircle(cx, cy, 12);                                                    // the throne room
+  carveEllipse(15, cy, 4, 3); carveRect(17, cy - 2, 3, 4);                    // west alcove
+  carveEllipse(45, cy, 4, 3); carveRect(41, cy - 2, 3, 4);                    // east alcove
+  carveEllipse(cx, 50, 3, 4); carveRect(cx - 2, 45, 4, 3);                    // south alcove
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) setTile(x, y, 0);
+  const R = (x, y, rw, rh, roomType) => ({ x, y, w: rw, h: rh, roomType, shape: 'rect' });
+  LV.rooms = [R(27, 3, 6, 5, 'antechamber'), R(cx - 12, cy - 12, 24, 24, 'hall'), R(11, cy - 3, 8, 6, 'shrine'), R(41, cy - 3, 8, 6, 'shrine'), R(cx - 3, 46, 6, 8, 'shrine')];
+  LV.spawn = at(30, 5);
+  LV.exit = { x: -1000, z: -1000, tx: -500, ty: -500, found: false, none: true }; // there is no further down
+  // six pillars in a ring (none in the line of the door), the throne on its dais at the far side
+  for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; addRuin(Math.round(cx + Math.cos(a) * 8.5), Math.round(cy + Math.sin(a) * 8.5), 'pillar', { v: k % 2 }); }
+  const throne = at(cx, cy + 7); LV.structures.push({ ...throne, r: 2.0, kind: 'throne', face: -Math.PI / 2 });
+  LV.story.throne = { ...at(cx, cy), seat: throne, door: [[28, 21], [29, 21], [30, 21], [31, 21], [28, 22], [29, 22], [30, 22], [31, 22]],
+    alcoves: [[[16, cy - 1], [17, cy - 1], [17, cy], [16, cy], [17, cy + 1], [16, cy + 1]], [[42, cy - 1], [43, cy - 1], [42, cy], [43, cy], [42, cy + 1], [43, cy + 1]], [[cx - 1, 46], [cx, 46], [cx - 1, 47], [cx, 47]]] };
+  LV.npcs.push({ id: 'king', ...at(cx, cy + 3), face: -Math.PI / 2 });
+  // fire: two at the approach, the alcoves' braziers wait to be lit; oil and tonics in the alcoves, a cache on the way in
+  placeBrazier(28, 9, true); placeBrazier(32, 9, true);
+  placeBrazier(15, cy, false); placeBrazier(45, cy, false); placeBrazier(cx, 50, false); placeBrazier(cx, 16, false);
+  placePickup('fuel', 14, cy + 2); placePickup('health', 46, cy + 2); placePickup('fuel', cx - 1, 51); placePickup('health', cx + 1, 51);
+  placeSecret('fuel', 30, 12);
   computeDepth();
   return LV;
 }

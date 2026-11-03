@@ -193,6 +193,17 @@ function buildRuinsWorld(ctx) {
     if (st.kind === 'pillar') placeLod(ctx, pillars[st.v || 0], st.x, st.z, 1, 'pillar' + (st.v || 0), { yaw: sq() });
     else if (st.kind === 'stump') { let k = 0; for (let i = 1; i < 3; i++) if (Math.abs(STUMP_H[i] - st.h) < Math.abs(STUMP_H[k] - st.h)) k = i; placeLod(ctx, stumps[k], st.x, st.z, 1, 'stump' + k, { yaw: sq() }); }
     else if (st.kind === 'drum') placeLod(ctx, drum, st.x, st.z, 1, 'drum', { yaw: st.yaw, tree: false });
+    else if (st.kind === 'throne') { // the Hollow Throne: a stepped dais, a high-backed seat of dark stone trimmed in tarnished gold
+      const b = new GeoBuilder(), stone = col(0x4a4640), dark = col(0x2e2b28), gold = col(0x8a6a2a);
+      b.add(T.box, M(0, 0.18, 0, 0, 0, 0, 7.2, 0.36, 5.2), stone, 0.08); b.add(T.box, M(0, 0.52, 0.5, 0, 0, 0, 5.2, 0.32, 3.4), stone, 0.08);
+      b.add(T.box, M(0, 1.0, 0.9, 0, 0, 0, 1.6, 0.62, 1.2), dark, 0.06);                               // the seat
+      b.add(T.box, M(0, 2.6, 1.42, 0, 0, 0, 1.7, 3.6, 0.32), dark, 0.06);                              // the back, rising high
+      for (let i = 0; i < 5; i++) b.add(T.box, M(-0.68 + i * 0.34, 4.55 + (i % 2) * 0.25, 1.42, 0, 0, 0, 0.14, 0.6 + (i % 2) * 0.4, 0.2), gold, 0.1); // its crown of spikes
+      for (const sx of [-1, 1]) { b.add(T.box, M(sx * 0.88, 1.35, 0.8, 0, 0, 0, 0.22, 0.2, 1.3), dark, 0.06); b.add(T.box, M(sx * 0.88, 1.0, 0.25, 0, 0, 0, 0.2, 0.6, 0.2), gold, 0.1); }
+      b.add(T.box, M(0, 2.6, 1.25, 0, 0, 0, 1.2, 0.06, 0.04), gold, 0.1); b.add(T.box, M(0, 3.9, 1.25, 0, 0, 0, 1.2, 0.06, 0.04), gold, 0.1);
+      const mesh = new THREE.Mesh(b.build(), matVC); mesh.position.set(st.x, 0, st.z); mesh.castShadow = true; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; mesh.updateMatrix(); group.add(mesh);
+      addCullable({ mesh, cx: st.x, cy: 2, cz: st.z, r: 4.6 });
+    }
     else if (st.kind === 'statue') {
       const yaw = rotYOfHeading(st.face);
       placeLod(ctx, statue, st.x, st.z, 1, 'statue', { yaw });

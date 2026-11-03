@@ -27,19 +27,21 @@ export const DEFS = {
   // Floor V: the choir sings the others sharper and never strikes; the wraith is Aldric's captain (the 2D Crown's numbers)
   choir: { name: 'Resonance Choir', hp: 20, speed: 2.7, r: 0.5, sense: 16, damage: 0, range: 0, windup: 0, recover: 0.2, lunge: 0, lungeSpeed: 0, eye: 0, sy: 1.3, sr: 1.1 },
   wraith: { name: 'Bound Wraith', hp: 70, speed: 4.6, r: 0.5, sense: 18, damage: 15, range: 3.2, windup: 0.42, recover: 0.42, lunge: 0.18, lungeSpeed: 12, eye: 0xc8dcff, sy: 1.2, sr: 1.35 },
+  // Floor VI: what the crown makes of the king (the 2D Crown's Hollow Witness, hp 420)
+  witness: { name: 'The Hollow King', hp: 420, speed: 2.6, r: 1.0, sense: 40, damage: 22, range: 5.8, windup: 0.74, recover: 0.6, lunge: 0, lungeSpeed: 0, eye: 0xffd08a, sy: 1.6, sr: 2.4 },
   hound: { name: 'Gloom Hound', hp: 42, speed: 4.2, r: 0.48, sense: 17, damage: 14, range: 3.6, windup: 0.45, recover: 0.4, lunge: 0.18, lungeSpeed: 13.5, eye: 0xb4e4ff, sy: 0.65, sr: 1.1 },
 };
 const STONE = (e) => e.type === 'sentinel' || e.type === 'guardian';
 export const CR = { list: [], dead: [], dangerNear: 99 };
-const SEEN = { choir: 'Something is making them sharper. Find the source.', wraith: 'That one was a soldier once.', wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.', moth: 'The small ones drink light.', leech: 'It hates the bright edge.',
+const SEEN = { witness: 'That is not a man any more. That is what the crown wanted.', choir: 'Something is making them sharper. Find the source.', wraith: 'That one was a soldier once.', wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.', moth: 'The small ones drink light.', leech: 'It hates the bright edge.',
   sentinel: 'Stone wakes in bright rooms.', hound: 'It wants the dark run-up.', guardian: 'The guardian. It has waited a long time for someone.' };
 
 // shared materials: glossy bits (eyes, teeth, claws, noses), steel, and self-lit glow (leech pustules, moth embers)
 const GLOSS = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0xffffff, dithering: true }));
 const STEEL = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0xfff0d8, dithering: true }));
 const GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-const SCORE = { wraith: 18, wolf: 6, leech: 6, moth: 4, bandit: 10, leader: 18, sentinel: 16, guardian: 20, hound: 10, choir: 5 }; // the 2D Crown's scores
-const TONE = { choir: 0.5, wraith: 0.3, wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.42, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
+const SCORE = { witness: 50, wraith: 18, wolf: 6, leech: 6, moth: 4, bandit: 10, leader: 18, sentinel: 16, guardian: 20, hound: 10, choir: 5 }; // the 2D Crown's scores
+const TONE = { witness: 0.4, choir: 0.5, wraith: 0.3, wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.42, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
 const spriteMat = (color, add) => new THREE.SpriteMaterial({ map: glowTex, color, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
 
 // ---------- visuals ----------
@@ -100,6 +102,7 @@ function spawn(s) {
   return e;
 }
 export function spawnCreatures() {
+  clearRings();
   for (const e of CR.list) disposeVisual(e); for (const e of CR.dead) if (e.grp) disposeVisual(e);
   // difficulty thins the hunters out or sends more (an extra of the same kind beside some of them)
   const list = [];
@@ -134,7 +137,7 @@ function chooseWanderTarget(e) {
 }
 const nudge = (e, a, d) => moveWithCollisions(e, Math.cos(a) * d / 0.08, Math.sin(a) * d / 0.08, 0.08);
 const angleTo = (ax, az, bx, bz) => Math.atan2(bz - az, bx - ax);
-const chestY = (e) => (e.type === 'choir' ? 1.3 : e.type === 'wraith' ? 1.25 : e.type === 'moth' ? e.fy : e.type === 'bandit' ? 1.3 : e.type === 'wolf' ? 0.68 : e.type === 'hound' ? 0.85 : STONE(e) ? 1.4 * (e.def.scale || 1) : 0.35);
+const chestY = (e) => (e.type === 'witness' ? 2.0 : e.type === 'choir' ? 1.3 : e.type === 'wraith' ? 1.25 : e.type === 'moth' ? e.fy : e.type === 'bandit' ? 1.3 : e.type === 'wolf' ? 0.68 : e.type === 'hound' ? 0.85 : STONE(e) ? 1.4 * (e.def.scale || 1) : 0.35);
 const HIT_COL = { wraith: [0.75, 0.72, 1], choir: [1, 0.85, 0.5], witness: [1, 0.85, 0.5], wolf: [1, 0.85, 0.6], leech: [0.75, 0.55, 1], moth: [1, 0.6, 0.25], bandit: [1, 0.85, 0.6], sentinel: [1, 0.9, 0.7], guardian: [0.9, 0.88, 0.8], hound: [0.75, 0.85, 1] };
 
 // ---------- combat (ported) ----------
@@ -165,7 +168,63 @@ function executeAttack(e) {
     if (d < e.def.range + 0.4 && Math.abs(wrapAngle(Math.atan2(dz, dx) - dir)) < 0.9 && P.invuln <= 0) H.damagePlayer(e.def.damage, 'physical', e.x, e.z);
     e.lungeTime = e.lungeAfter; e.lungeSpeed = e.lungeSpeedAfter; e.hitOnce = true; return;
   }
+  if (e.attackKind === 'wsweep' || e.attackKind === 'wnova') { // the king's light: a sweep at arm's length, or a ring that fills the room
+    const ph = e.phase || 1, sweep = e.attackKind === 'wsweep';
+    novaRing(e, sweep ? 9.1 + ph * 1.5 : 10.6 + ph * 2.25, sweep ? 0.38 : 0.46, 10 + ph * 2);
+    if (!sweep && ph >= 2) novaRing(e, 6.4 + ph * 0.9, 0.34, 10 + ph * 2, dir + 0.8 * e.orbitDir);
+    if (sweep && Math.hypot(P.x - e.x, P.z - e.z) < 3.9 && P.invuln <= 0) { H.damagePlayer(e.def.damage + ph * 2, 'physical', e.x, e.z); }
+    G.shake = Math.max(G.shake, sweep ? 0.45 : 0.6); sfx.slam && sfx.slam(e); burst(e.x, 2.0, e.z, 24, [1, 0.62, 0.3], 3.4, 0.5, -3, 0.6);
+    e.attackKind = ''; e.recover = Math.max(e.recover, e.recoverAfter); return;
+  }
   e.lungeTime = e.lungeAfter; e.lungeSpeed = e.lungeSpeedAfter;
+}
+// a ring of the crown's light, spreading from it across the floor: it burns you once as it passes, unless you are dashing
+const RINGS = [];
+function novaRing(e, maxR, life, dmg, ang) {
+  const off = ang === undefined ? 0 : 2.1, x = e.x + (ang === undefined ? 0 : Math.cos(ang) * off), z = e.z + (ang === undefined ? 0 : Math.sin(ang) * off);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffa060, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, fog: false });
+  const mesh = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 64, 1), mat); mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, 0.12, z); mesh.scale.setScalar(0.3); W.group.add(mesh);
+  RINGS.push({ x, z, r: 0.3, maxR, life, t: 0, dmg, hit: false, mesh });
+}
+function updateRings(dt) {
+  for (let i = RINGS.length - 1; i >= 0; i--) {
+    const g = RINGS[i]; g.t += dt; const k = Math.min(1, g.t / g.life); g.r = 0.3 + (g.maxR - 0.3) * (1 - (1 - k) * (1 - k));
+    g.mesh.scale.setScalar(g.r); g.mesh.material.opacity = 0.85 * (1 - k * 0.7);
+    if (!g.hit && Math.hypot(P.x - g.x, P.z - g.z) < g.r + 0.35 && P.invuln <= 0 && G.state === 'playing') { g.hit = true; H.damagePlayer(g.dmg, 'darkness', g.x, g.z); }
+    if (g.t > g.life + 0.25) { W.group.remove(g.mesh); g.mesh.geometry.dispose(); g.mesh.material.dispose(); RINGS.splice(i, 1); }
+  }
+}
+export function clearRings() { for (const g of RINGS) { if (g.mesh.parent) g.mesh.parent.remove(g.mesh); g.mesh.geometry.dispose(); g.mesh.material.dispose(); } RINGS.length = 0; }
+// the Hollow King, crowned: slow, shrinking from your bright light unless the braziers burn and it is caught in it;
+// at two thirds and one third of its strength it calls the dark to it and the room changes (story.js / npc.js)
+function witnessAI(e, dt, dP, sees, lh) {
+  e.phase = e.phase || 1; const pct = e.hp / e.maxHp;
+  if (pct < 0.65 && e.phase === 1) { e.phase = 2; if (H.witnessPhase) H.witnessPhase(e, 2); }
+  if (pct < 0.35 && e.phase === 2) { e.phase = 3; if (H.witnessPhase) H.witnessPhase(e, 3); }
+  // two lit braziers and the bright beam held on it: it cannot bear that for long
+  const lit = LV.braziers.filter((b) => b.lit).length;
+  if (lit >= 4 && lantern.mode === 2 && lh > 0.6) { e.lightStress = clamp(e.lightStress + dt * 0.45, 0, 1.3); if (e.lightStress > 1 && e.exposed <= 0) { exposeEnemy(e, 1.6); e.lightStress = 0; } }
+  else e.lightStress = Math.max(0, e.lightStress - dt * 0.3);
+  if (sees) { e.lastKnown.x = P.x; e.lastKnown.z = P.z; }
+  let tx = P.x, tz = P.z, sp = e.speed * (e.phase === 3 ? 1.1 : e.phase === 2 ? 1.04 : 1);
+  if (dP < 9.75 && lantern.mode === 2) { const away = Math.atan2(e.z - P.z, e.x - P.x); tx = e.x + Math.cos(away) * 7.6; tz = e.z + Math.sin(away) * 7.6; sp *= 0.76; }
+  const a = Math.atan2(tz - e.z, tx - e.x);
+  e.facing = lerpAngle(e.facing, Math.atan2(P.z - e.z, P.x - e.x), clamp(dt * 3, 0, 1));
+  if (dP > 2.6) moveWithCollisions(e, Math.cos(a) * sp, Math.sin(a) * sp, dt);
+  if (e.attackCd <= 0 && e.windup <= 0 && e.recover <= 0) {
+    const dir = Math.atan2(P.z - e.z, P.x - e.x), near = dP < 5.75;
+    beginWindup(e, near ? 'wsweep' : 'wnova', dir);
+    e.windup = e.windupMax = (near ? 0.68 - e.phase * 0.05 : 0.92 - e.phase * 0.07) * DF.windup; e.recoverAfter = near ? 0.66 : 0.56; e.attackCd = e.windup + e.recoverAfter + 0.5;
+  }
+}
+// it hangs a little off the floor, swaying; the rings about it turn, its crown bobs; it rises as it gathers its light
+function animWitness(e, dt, t) {
+  const b = e.b, k = k8(dt), c = e.windup > 0 ? 1 - e.windup / Math.max(0.01, e.windupMax) : 0;
+  b.root.position.y = 0.15 + 0.08 * Math.sin(t * 0.9) + c * 0.35;
+  b.halo.rotation.y += dt * (0.4 + c * 3 + (e.phase || 1) * 0.2); b.halo.scale.setScalar(1 + c * 0.25);
+  b.crown.position.y = (b.crown.userData.base ? b.crown.userData.base.y : 0) + 0.06 * Math.sin(t * 1.7); b.crown.rotation.y += dt * 0.5;
+  rx(b.chest, -c * 0.12 + Math.sin(t * 0.7) * 0.03 - e.recoil * 0.1, k);
+  b.root.rotation.z = e.exposed > 0 ? Math.sin(t * 30) * 0.02 : 0;
 }
 function handleAction(e, dt) {
   e.exposed = Math.max(0, e.exposed - dt); e.exposeFlash = Math.max(0, e.exposeFlash - dt);
@@ -189,13 +248,14 @@ export function damageEnemy(e, amount, knock, dir, cause) {
   let real = amount;
   if (e.type === 'bandit' && e.blocking && cause === 'slash') { real *= 0.5; e.blocking = false; sfx.block(); burst(e.x, 1.1, e.z, 14, [1, 0.95, 0.8], 2.5, 0.35, -6); }
   if (cause === 'slash') {
-    if (e.exposed > 0) real *= STONE(e) ? 2.25 : 1.72;
+    if (e.exposed > 0) real *= STONE(e) ? 2.25 : e.type === 'witness' ? 1.85 : 1.72;
+    else if (e.type === 'witness') { real *= 0.72; e.hardHit++; if (e.hardHit === 3) H.say('It shrugs off the blade. Catch it as it gathers itself, or burn it in the bright.'); }
     else if (STONE(e)) { real *= 0.34; e.hardHit++; if (e.hardHit >= 2) H.say('Hard as stone. Pulse it, then cut.'); }
     else if (e.type === 'leech' && lantern.mode === 2) real *= 1.15;
   }
   else if (cause === 'pulse') real *= e.type === 'moth' ? 1 : 0.72;
   else if (cause === 'flare') { if (e.type === 'leech' || e.type === 'hound') real *= 1.06; if (STONE(e)) real *= 0.8; }
-  else if (cause === 'light') real *= e.type === 'leech' ? 1.2 : 0.28;
+  else if (cause === 'light') real *= e.type === 'leech' ? 1.2 : e.type === 'witness' ? 1 : 0.28;
   e.hp -= real; e.invuln = cause === 'light' ? 0.03 : 0.07; e.hurtFlash = 0.2; e.exposeFlash = Math.max(e.exposeFlash, 0.12);
   if (cause !== 'light') {
     sfx.hit(e.exposed > 0); G.shake = Math.max(G.shake, e.exposed > 0 ? 0.5 : 0.28); G.hitstop = Math.max(G.hitstop, e.exposed > 0 ? 0.05 : 0.025);
@@ -205,7 +265,7 @@ export function damageEnemy(e, amount, knock, dir, cause) {
   if (knock > 0) nudge(e, dir, knock);
   if (e.windup > 0) {
     if (cause === 'flare') { if (e.type === 'leech' || e.type === 'wolf' || e.type === 'hound') exposeEnemy(e, 1.15); else interruptEnemy(e, 0.22); }
-    else if (cause === 'pulse') { if (e.type === 'wolf' || e.type === 'hound' || STONE(e)) exposeEnemy(e, STONE(e) ? 2.25 : 1.2); else interruptEnemy(e, 0.18); }
+    else if (cause === 'pulse') { if (e.type === 'wolf' || e.type === 'hound' || STONE(e) || e.type === 'witness') exposeEnemy(e, STONE(e) || e.type === 'witness' ? 2.25 : 1.2); else interruptEnemy(e, 0.18); }
   }
   if (e.state === 'camp') { e.state = 'chase'; e.stateTime = 2; if (LV.campHold && H.campFight) H.campFight(); } // struck before their leader spoke: the camp rises
   if (STONE(e) && e.state === 'dormant') wake(e);
@@ -226,6 +286,7 @@ function kill(e, dir) {
   else if (e.type === 'leech') { burst(e.x, y, e.z, 24, [0.7, 0.45, 1], 2, 0.8, -3); dust(e.x, 0.3, e.z, 6, [0.12, 0.08, 0.16]); }
   else dust(e.x, 0.25, e.z, 7, [0.14, 0.13, 0.12]);
   if (Math.random() < 0.18) H.addPickup('fuel', e.x, e.z);
+  if (e.type === 'witness' && H.kingDown) H.kingDown(e);
   if (e.type === 'wraith' && !S.wraithEdge) { S.wraithEdge = true; S.coins += 15; P.atkBonus += 8; P.speedK += 0.08; H.hint('Relic: Wraith’s Edge — cold and certain.', 3.4); } // the captain's blade
   S.coins += Math.floor((SCORE[e.rig || e.type] || 5) * 0.6 + Math.random() * 4); // what they carried (the 2D Crown's coin drop)
   CR.list = CR.list.filter((o) => o !== e); CR.dead.push(e);
@@ -238,6 +299,7 @@ function updateEnemy(e, dt) {
   if (handleAction(e, dt)) return;
   if (e.type === 'moth') { mothAI(e, dt, lightHere, dP); return; }
   if (e.type === 'choir') { choirAI(e, dt, dP); return; }
+  if (e.type === 'witness') { witnessAI(e, dt, dP, sees, lightHere); return; }
   if (e.type === 'leech') { e.lightStress = clamp(e.lightStress + (lightHere > 0.62 ? dt * 1.7 : -dt * 0.8), 0, 1.4); if (e.lightStress > 0.7 && e.exposed <= 0) exposeEnemy(e, 1.05); }
   if (STONE(e)) {
     // asleep until bright light finds it, it sees you close, or it is struck
@@ -459,7 +521,7 @@ function animSentinel(e, dt, t) {
   rx(b.shL, shL, fast); rx(b.shR, shR, fast); rx(b.elL, -0.05 - c * 0.5, fast); rx(b.elR, -0.05 - c * 0.5, fast);
   b.shL.rotation.z = lerp(b.shL.rotation.z, 0.12 - c * 0.25, k); b.shR.rotation.z = lerp(b.shR.rotation.z, -0.12 + c * 0.25, k);
 }
-const ANIM = { choir: animChoir, wraith: animWraith, wolf: animWolf, leech: animLeech, moth: animMoth, bandit: animBandit, sentinel: animSentinel, guardian: animSentinel, hound: animWolf };
+const ANIM = { witness: animWitness, choir: animChoir, wraith: animWraith, wolf: animWolf, leech: animLeech, moth: animMoth, bandit: animBandit, sentinel: animSentinel, guardian: animSentinel, hound: animWolf };
 function animDeath(e, dt) {
   e.dying += dt; const b = e.b, k = smooth(0, 0.55, e.dying);
   if (STONE(e)) { // it melts down into itself
@@ -478,6 +540,8 @@ function animDeath(e, dt) {
     e.fy = Math.max(0.12, e.fy - dt * (1 + e.dying * 6)); b.root.rotation.z += dt * 6 * (e.fy > 0.15 ? 1 : 0);
     b.fwL.rotation.z = b.hwL.rotation.z = lerp(b.fwL.rotation.z, -0.3, 0.1); b.fwR.rotation.z = b.hwR.rotation.z = -b.fwL.rotation.z;
     if (e.glow) e.glow.material.opacity = Math.max(0, 0.6 - e.dying * 0.5);
+  } else if (e.type === 'witness') { // it folds down into its robes; the crown drops and the rings go out
+    b.root.scale.y = Math.max(0.04, 1 - k * 0.95); b.crown.position.y = lerp(b.crown.position.y, -2.6, 0.03); b.halo.scale.setScalar(Math.max(0.01, 1 - k));
   } else if (e.type === 'choir') { // the bell drops and the masks go quiet
     b.root.position.y = -k * 1.05; b.ring.rotation.z += dt * (1 - k) * 2; b.core.rotation.x = k * 0.6;
   } else if (e.type === 'wraith') { // it comes apart downward, into its own rags
@@ -507,6 +571,7 @@ function leave(e, dt) {
   return false;
 }
 export function updateCreatures(dt, camera) {
+  if (dt > 0) updateRings(dt);
   const active = G.state === 'playing' && !G.paused && !window.__freezeAI; // tests can freeze the AI and still watch the animation
   const T = performance.now() / 1000;
   pxPerM = (2 * Math.tan((camera.fov * Math.PI) / 360)) / Math.min(G.renderH, 400);

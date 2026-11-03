@@ -36,7 +36,7 @@ export const H = {
 };
 
 // the story so far (the 2D Crown's `story`): coins, and what you have done for whom. Carried floor to floor.
-const STORY0 = { coins: 15, talkedToElder: false, ring: false, talkedToLyn: false, lynJoined: false, helpedFarmer: false, savedChild: false, sword: false, mail: false, clearedBandits: false, banditsPersuaded: false, runedBlade: false, wardingPlate: false, freedSpirit: false, solvedPuzzle: false, learnedTruth: false, wraithEdge: false };
+const STORY0 = { coins: 15, talkedToElder: false, ring: false, talkedToLyn: false, lynJoined: false, helpedFarmer: false, savedChild: false, sword: false, mail: false, clearedBandits: false, banditsPersuaded: false, runedBlade: false, wardingPlate: false, freedSpirit: false, solvedPuzzle: false, learnedTruth: false, wraithEdge: false, finalChoice: null };
 export const S = { ...STORY0 };
 export function resetStory() { Object.assign(S, STORY0); }
 

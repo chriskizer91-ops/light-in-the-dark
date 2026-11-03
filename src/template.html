@@ -137,6 +137,17 @@
   .floor { font:600 13px/1.5 var(--f); letter-spacing:.2em; color:var(--amber); }
   .go { margin-top:10px; height:48px; padding:0 30px; border-radius:999px; border:1px solid rgba(232,200,120,.6); background:rgba(40,30,16,.8); color:var(--gold); font:700 15px/1 var(--f); letter-spacing:.24em; }
   .go:hover { background:rgba(70,50,24,.9); }
+  #story { position:fixed; inset:0; z-index:8; background:#050404; display:flex; align-items:center; justify-content:center; overflow-y:auto; padding:28px 22px; }
+  #stIn { max-width:620px; width:100%; display:flex; flex-direction:column; align-items:center; text-align:center; gap:18px; }
+  #story .title { font-size:clamp(26px,5vw,46px); }
+  #stText p { font:400 clamp(16px,2.3vw,19px)/1.65 var(--serif); color:#e6dccb; margin:0 0 14px; opacity:0; transform:translateY(6px); transition:opacity 1.2s, transform 1.2s; }
+  #stText p.on { opacity:1; transform:none; }
+  #stStats { font:600 12px/1.9 var(--f); letter-spacing:.2em; color:var(--ink2); opacity:0; transition:opacity 1.2s; }
+  #stStats.on { opacity:1; } #stStats b { color:var(--gold); font-weight:700; }
+  #stTap { font:600 11px/1 var(--f); letter-spacing:.3em; color:#6a6258; }
+  #story.glitch #stIn { animation:glitch .09s steps(2) infinite; } #story.glitch p { color:#c8c0b0; }
+  @keyframes glitch { 0% { transform:translate(3px,-2px) skewX(4deg); filter:hue-rotate(40deg); } 50% { transform:translate(-4px,2px) skewX(-6deg); } 100% { transform:translate(2px,1px); } }
+  #story.black #stIn { opacity:0; transition:opacity .4s; }
   .ctrl { max-width:560px; font:500 13px/1.6 var(--f); color:var(--ink2); }
   #endStats { font:500 15px/1.7 var(--f); color:var(--ink); }
   #endSub { letter-spacing:.08em; }
@@ -220,7 +231,7 @@
   <div class="kicker">HYPERDOT ARCADE</div>
   <h1 class="title">THE HOLLOW CROWN</h1>
   <div class="sub">LANTERN OF THE DEEP</div>
-  <div class="floor">FLOORS I–IV · ASH HOLLOW TO THE EASTERN RUINS · FIRST PERSON</div>
+  <div class="floor">FLOORS I–VI · ASH HOLLOW TO THE HOLLOW THRONE · FIRST PERSON</div>
   <button class="go" id="startBtn">TAKE UP THE LANTERN</button>
   <button class="go alt" id="diffBtn">DIFFICULTY: STANDARD</button>
   <button class="go alt" id="ringBtn">LANTERN: A BEAM (ONE DIRECTION)</button>
@@ -234,6 +245,17 @@
   <div id="endStats"></div>
   <button class="go" id="againBtn">AGAIN</button>
   <button class="go alt" id="menuBtn">TITLE</button>
+</div>
+
+<!-- the story's last pages: one paragraph at a time, then what you did, then begin again -->
+<div id="story" class="hidden">
+  <div id="stIn">
+    <h1 class="title" id="stTitle"></h1>
+    <div id="stText"></div>
+    <div id="stStats"></div>
+    <button class="go" id="stBtn">BEGIN AGAIN</button>
+    <div id="stTap">TAP OR PRESS SPACE</div>
+  </div>
 </div>
 
 <script>/*__SCRIPT__*/</script>

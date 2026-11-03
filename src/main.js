@@ -25,6 +25,7 @@ const VO = { q: [], cur: null, typed: 0, hold: 0, cool: {} };
 // who: the lantern (default), 'sera' or 'merchant'
 const WHO = { sera: 'SERA', merchant: 'THE GRAY MERCHANT', lyn: 'LYN' };
 H.say = (text, force = false, who = '') => {
+  if (!text) return; // nothing to say
   const now = G.t; if (!force && (VO.cool[text] || -99) > now) return;
   VO.cool[text] = now + 10;
   if (VO.cur && VO.cur.text === text) return;
@@ -65,6 +66,7 @@ const FLOORS = {
   3: { title: 'THE DEEP WOODS', lines: [['a', 2, 'The trees have stopped growing. They remember how.'], ['b', 8, 'I am awake now. Do not let me go out.']], exit: 'Down. The roots go down.' },
   4: { title: 'THE EASTERN RUINS', lines: [['a', 2, 'The stone here was carved by hands that are still here.'], ['b', 9, 'Walls again. What is behind them stays dark to me until we go through.']], exit: 'Stairs. Down again, into the inner ruins.' },
   5: { title: 'THE INNER RUINS', lines: [['a', 2, 'The dark does not scare me. The question of whether I can be scared — that is what scares me.'], ['b', 11, () => (S.freedSpirit ? 'She is free. I felt her go. Like a held breath released.' : S.solvedPuzzle ? 'The guardian is gone. What it guarded remains.' : '')]], exit: 'Down. The last stair. I can feel the crown from here.' },
+  6: { title: 'THE HOLLOW THRONE', lines: [['a', 2, 'It waits ahead. Keep me alive.'], ['b', 14, () => (S.learnedTruth || S.freedSpirit ? 'Whatever he says — you came here knowing something. Remember it.' : 'I cannot see past him. Only through.')]], exit: '' },
 };
 // carry: the Warden's state from the floor above (health, oil, relics), or null for a fresh start
 function buildRun(seed, floor = 3, carry = null) {
@@ -115,7 +117,7 @@ function die() {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function descend() {
-  G.state = 'descending'; G.endT = 0; G.won = LV.floor >= 5; sfx.descend(); // (Floor VI, the throne, is next to be built)
+  G.state = 'descending'; G.endT = 0; G.won = false; sfx.descend(); // every way down leads to the throne; the story ends there (H.ending)
   if (G.won && document.pointerLockElement) document.exitPointerLock();
 }
 // down the roots into the ruins: health and oil carry over (+28 health, +50 oil, as in the Crown)
@@ -140,7 +142,7 @@ function showEnd() {
 }
 $('startBtn').addEventListener('click', () => { G.state = 'ended'; startGame(1); });
 // begin partway down (to try a floor without walking the ones above): › picks which
-const PICK = [2, 3, 4, 5], ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+const PICK = [2, 3, 4, 5, 6], ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
 let pickFloor = 3;
 const pickLabel = () => { $('startBtn4').textContent = 'BEGIN AT FLOOR ' + ROMAN[pickFloor] + ' · ' + FLOORS[pickFloor].title; };
 $('startBtn4').addEventListener('click', () => { G.state = 'ended'; startGame(pickFloor); });
@@ -148,6 +150,60 @@ $('pickBtn').addEventListener('click', (e) => { e.stopPropagation(); pickFloor =
 pickLabel();
 $('againBtn').addEventListener('click', () => { G.state = 'ended'; startGame(G.endFloor || 1); });
 $('menuBtn').addEventListener('click', () => toMenu());
+// ---------- the end of the story (the 2D Crown's showEnding and hollowKingDefeated) ----------
+const ENDINGS = {
+  persuade: { title: 'The King Remembers', pages: () => ['Aldric’s hands close on the crown. He lifts it from his head. The moment it separates, he gasps — the first real breath in decades.', 'Color floods his face. Pain follows. Age follows that. He is dying — has been dying since the crown stopped time.', '“Thank you,” he says. And means it.', 'The crown falls. A circle of cold metal with no more power than a horseshoe. The curse drains from the ruins like water.',
+    ...(S.lynJoined ? ['Lyn puts a hand on your shoulder. She doesn’t say anything. She doesn’t need to.'] : []), ...(S.freedSpirit ? ['You feel Sera pass — not with pain, but with relief, like a held breath finally released.'] : []), 'You carry the dead crown back to Ash Hollow. Maren sees it and understands.'] },
+  take: { title: 'The New Hollow', pages: () => ['The crown settles on your head. It is cold. Then it is everything.', 'You understand now — all of it, all at once. Death is wrong. Uncertainty is wrong. You can fix everything.', 'Aldric watches from the floor, mortal now, fading. “I thought I would be different too,” he whispers.',
+    ...(S.lynJoined ? ['Lyn looks at you. She sees the change. “Warden?” she says. But you are not the Warden anymore.'] : []), 'The curse deepens. You sit on the throne, certain at last, hollow at last.'] },
+  destroy: { title: 'Before the Room Becomes a Room', pages: () => ['You take the crown. The certainty floods in. And you break it.', 'Not because you are strong enough to resist. But because you learned that certainty is not what you came for.', 'The crown shatters. Aldric falls. The gray lifts — slow and then sudden. The ruins groan. Stone falls. You run.',
+    S.lynJoined ? 'Lyn pulls you through the collapsing corridor. “Move, Warden! Philosophy later!”' : 'You run alone, guided by nothing but the forward direction.', 'You emerge into sunlight. Real sunlight. Somewhere, a bird calls — the first bird in years.',
+    ...(S.savedChild ? ['The child runs to meet you at the village gate, laughing.'] : []), ...(S.helpedFarmer ? ['Farmer Ged’s ox lifts its head. Its eyes are clear.'] : []), 'You do not know what comes next. For the first time, that feels like enough.'] },
+  // the path that goes around the story's question has no ending: the original's panel breaks on purpose here
+  fight: { title: '', pages: () => ['The Hollow King falls.', 'The crown rolls across the stone floor. Its gray light pulses once, twice, then holds steady.', 'You wait for the curse to lift. For color to return. For something to change.', 'Nothing changes.', 'The crown is still glowing. The gray is still here. The king is dead and the answer is dead with him and you are standing in a room that no longer has a question.', 'Without the question, the world that held it crashes into nothing.'], button: '…' },
+};
+const story = { pages: [], i: 0, type: '' };
+function showStory(type) {
+  const E = ENDINGS[type]; story.type = type; story.pages = E.pages(); story.i = 0;
+  G.state = 'ended'; G.talk = null; if (document.pointerLockElement) document.exitPointerLock();
+  $('hud').classList.add('hidden'); $('touchUI').classList.add('hidden'); $('tricksBtn').classList.add('hidden'); toggleTricks(false); showViewModels(false);
+  const el = $('story'); el.classList.remove('hidden', 'glitch', 'black');
+  $('stTitle').textContent = E.title; $('stText').innerHTML = ''; $('stStats').innerHTML = ''; $('stStats').classList.remove('on');
+  $('stBtn').textContent = E.button || 'BEGIN AGAIN'; $('stBtn').style.visibility = 'hidden'; $('stTap').style.visibility = 'visible';
+  storyNext();
+}
+function storyNext() {
+  if (story.i >= story.pages.length) return;
+  const p = document.createElement('p'); p.textContent = story.pages[story.i++]; $('stText').appendChild(p); requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add('on')));
+  p.scrollIntoView && setTimeout(() => p.scrollIntoView({ behavior: 'smooth', block: 'end' }), 60);
+  if (story.i < story.pages.length) return;
+  $('stTap').style.visibility = 'hidden';
+  setTimeout(() => {
+    if (story.type !== 'fight') {
+      const quests = [S.helpedFarmer, S.savedChild, S.clearedBandits, S.freedSpirit, S.solvedPuzzle].filter(Boolean).length, relics = [S.ring, S.savedChild, S.solvedPuzzle, S.wraithEdge].filter(Boolean).length;
+      const total = G.runT + G.t, m = Math.floor(total / 60), sec = String(Math.floor(total % 60)).padStart(2, '0');
+      $('stStats').innerHTML = `QUESTS <b>${quests} / 5</b> · COMPANION <b>${S.lynJoined ? 'LYN' : 'NONE'}</b> · RELICS <b>${relics}</b><br>ENDING <b>${ENDINGS[story.type].title.toUpperCase()}</b> · ${DF.name} · ${m}:${sec}`;
+      $('stStats').classList.add('on');
+    }
+    $('stBtn').style.visibility = 'visible';
+  }, 900);
+}
+$('story').addEventListener('pointerdown', (e) => { if (e.target.id === 'stBtn') return; storyNext(); });
+addEventListener('keydown', (e) => { if ($('story').classList.contains('hidden')) return; if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); storyNext(); } });
+$('stBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (story.type === 'fight') { // the world that held the question comes apart: the text shakes itself to pieces, then nothing, then the title
+    const el = $('story'); el.classList.add('glitch'); sfx.rumble && sfx.rumble();
+    const ps = [...$('stText').children], noise = '▓▒░█▚▞╳';
+    let n = 0; const iv = setInterval(() => { n++; for (const p of ps) p.textContent = p.textContent.split('').map((ch) => (Math.random() < 0.06 * n ? noise[(Math.random() * noise.length) | 0] : ch)).join(''); }, 90);
+    setTimeout(() => { clearInterval(iv); el.classList.add('black'); }, 1500);
+    setTimeout(() => { el.classList.add('hidden'); el.classList.remove('glitch', 'black'); toMenu(); }, 2600);
+    return;
+  }
+  $('story').classList.add('hidden'); G.state = 'ended'; startGame(1);
+});
+H.ending = (type) => setTimeout(() => showStory(type), 400);
+H.kingDown = () => { G.shake = 1; P.invuln = 9; for (const o of CR.list) if (o.alive && o.type !== 'witness') { o.leaving = 0; o.leaveA = Math.atan2(o.z - P.z, o.x - P.x); } setTimeout(() => showStory('fight'), 2600); }; // the dark it called goes with it
 $('pauseOv').addEventListener('click', () => { A.resume(); tryLock(); });
 
 // ---------- actions ----------

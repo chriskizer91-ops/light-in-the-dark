@@ -6,6 +6,8 @@ import { getRig, makeSkeleton, rigMaterial } from './rigs.js';
 import { G, P, H, S } from './state.js';
 import { sfx } from './audio.js';
 import { CR, addCreature } from './creatures.js';
+import { collapseTiles } from './world3d.js';
+import { burst, dust } from './fx.js';
 
 // =====================================================================
 //  PEOPLE — the 2D Crown's villagers, with their own words. Elder Maren
@@ -15,8 +17,8 @@ import { CR, addCreature } from './creatures.js';
 //  and in the Gray Forest a girl is hiding. Walk up to someone, face them
 //  and press USE to talk. Lyn, once she joins, follows you floor to floor.
 // =====================================================================
-const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL', leader: 'BANDIT LEADER', merchant: 'THE GRAY MERCHANT', wraith: 'THE WRAITH' };
-const TONE = { maren: 0.62, sev: 0.6, lyn: 0.6, ged: 0.6, girl: 0.62, leader: 0.42, wraith: 0.3 };
+const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL', leader: 'BANDIT LEADER', merchant: 'THE GRAY MERCHANT', wraith: 'THE WRAITH', king: 'THE HOLLOW KING', you: 'YOU' };
+const TONE = { maren: 0.62, sev: 0.6, lyn: 0.6, ged: 0.6, girl: 0.62, leader: 0.42, wraith: 0.3, king: 0.5 };
 const close = { text: 'Leave.', close: true };
 const D = {
   maren_initial: {
@@ -110,6 +112,33 @@ const D = {
       { text: 'Grant him rest.', fn: () => { S.learnedTruth = true; wraithDone(true); } },
     ],
   },
+  // Floor VI: the Hollow King, before his throne (the 2D Crown's throne_room, word for word)
+  throne_room: {
+    who: 'king', lines: [
+      'Another Warden. The brand still works, then. Come to end the curse? To save the village? To be the hero of a story that has been told before?',
+      'I ended death, Warden. I solved the only problem that matters. And this — this grayness, this hollowness — is what solving it costs. The answer was correct. The cost was everything else.',
+      'So. What will you do?'],
+    choices: [
+      { text: 'Fight him.', fn: () => kingFight() },
+      { text: '“Remove the crown yourself. Choose to be uncertain again.”', next: 'throne_persuade', req: () => S.learnedTruth, why: () => 'needs: what the wraith knew' },
+      { text: 'Take the crown.', next: 'throne_take' },
+    ],
+  },
+  throne_persuade: {
+    who: 'king', lines: [
+      ['king', '…Uncertain? You want me to choose uncertainty? After everything I sacrificed for an answer?'],
+      ['you', 'Your captain chose to follow you into undeath. He told me he didn’t choose the endlessness. You didn’t choose the grayness. The crown chose for both of you.'],
+      ['king', 'And if I remove it? Death returns. To my people, my kingdom, to me. Everything I held back floods in.'],
+      ['you', 'Yes. And the living can be alive again. The choice is yours. Not the crown’s.']],
+    choices: [{ text: 'Wait.', fn: () => { S.finalChoice = 'persuade'; H.ending('persuade'); } }],
+  },
+  throne_take: {
+    who: 'king', lines: ['You think you are strong enough. You think you will be different. That is what certainty sounds like from the inside, Warden. It sounds like you.'],
+    choices: [
+      { text: 'Take the crown.', fn: () => { S.finalChoice = 'take'; H.ending('take'); } },
+      { text: '…No. Destroy it instead.', fn: () => { S.finalChoice = 'destroy'; H.ending('destroy'); } },
+    ],
+  },
   leader_persuade: {
     who: 'leader', lines: ['…The village would take us? After what we’ve done to their caravans?', 'You’re either foolish or honest. I can’t tell. But the gray is spreading and we can’t eat bark forever. Fine. We’ll go.'],
     done: () => { if (S.banditsPersuaded) return; S.clearedBandits = S.banditsPersuaded = true; S.coins += 15; sfx.relic(); H.hint('+15 coins. The bandits leave for the village.', 3); campLeave(); },
@@ -129,6 +158,47 @@ function campFight() {
   sfx.shout && sfx.shout({ x: n ? n.x : P.x, z: n ? n.z : P.z }); H.say('Armed. Careful.');
 }
 H.campFight = campFight;
+// a line is a string (spoken by the conversation's person) or [who, text]
+const lineText = (d, i) => (Array.isArray(d.lines[i]) ? d.lines[i][1] : d.lines[i]);
+const lineWho = (d, i) => (Array.isArray(d.lines[i]) ? d.lines[i][0] : d.who);
+// Floor VI: the fight. The King rises out of himself into what the crown has made, and the door seals behind you.
+function kingFight() {
+  S.finalChoice = 'fight';
+  const th = LV.story.throne, n = NPCS.list.find((q) => q.id === 'king');
+  const x = n ? n.x : th.x, z = n ? n.z : th.z;
+  if (n) { W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1); }
+  const e = addCreature('witness', x, z, { face: Math.atan2(P.z - z, P.x - x) }); e.state = 'chase'; e.stateTime = 2; e.attackCd = 2.2; e.lastKnown = { x: P.x, z: P.z };
+  burst(x, 2, z, 40, [1, 0.8, 0.45], 3.5, 0.9, -2, 0.8); G.shake = Math.max(G.shake, 0.8);
+  seal(th.door); H.say('The crown blazes. Hold me steady.', true); H.hint('The Hollow King stands. The door seals.', 3);
+}
+function seal(tiles) {
+  const ts = tiles.filter(([x, y]) => !(toTile(P.x) === x && toTile(P.z) === y)).map(([x, y]) => ({ x, y }));
+  for (const t of ts) LV.tiles[t.y * LV.w + t.x] = 0;
+  collapseTiles(ts); for (let k = 0; k < ts.length; k += 2) dust((ts[k].x + 0.5) * TILE, 1.4, (ts[k].y + 0.5) * TILE, 4, [0.2, 0.18, 0.15]);
+  sfx.rumble && sfx.rumble();
+}
+// at two thirds and a third of its strength: it calls the dark in, and an alcove falls in
+H.witnessPhase = (e, ph) => {
+  const th = LV.story.throne, n = ph === 2 ? 2 : 3;
+  for (let i = 0, tries = 0; i < n && tries < 40; tries++) {
+    const a = Math.random() * 6.283, r = 6 + Math.random() * 4.6, x = e.x + Math.cos(a) * r, z = e.z + Math.sin(a) * r;
+    if (!isWalkable(toTile(x), toTile(z))) continue;
+    const t = Math.random() < 0.45 ? 'moth' : Math.random() < 0.75 ? 'leech' : 'hound', o = addCreature(t, x, z); o.state = 'chase'; o.lastKnown = { x: P.x, z: P.z }; i++;
+  }
+  const open = th.alcoves.filter((al) => !al.sealed && !al.some(([x, y]) => Math.abs(toTile(P.x) - x) < 2 && Math.abs(toTile(P.z) - y) < 2));
+  if (open.length) { const al = open[(Math.random() * open.length) | 0]; al.sealed = true; seal(al); }
+  G.shake = Math.max(G.shake, 1.1);
+  if (ph === 2) { H.hint('The Witness shifts.', 2); H.say('It is learning you. The walls are closing.', true); }
+  else { H.hint('The Witness screams.', 2); H.say('Everything it has. Now. No more cover — move.', true); }
+};
+// the throne room: walk up to him and he speaks; once you have chosen, it is chosen
+function updateThrone(live) {
+  if (!live || LV.floor !== 6 || S.finalChoice) return;
+  const n = NPCS.list.find((q) => q.id === 'king'); if (!n) return;
+  const d = Math.hypot(P.x - n.x, P.z - n.z);
+  if (n.cool && d > 13) n.cool = false;
+  if (!n.cool && !G.talk && d < 9.5 && lineOfSight(P.x, P.z, n.x, n.z)) { n.cool = true; openTalk(n); }
+}
 // the wraith's answer: he goes, or he gives you the fight he asked for
 function wraithDone(fight) {
   const w = LV.story.wraith; w.done = true;
@@ -149,7 +219,7 @@ function campLeave() {
   for (const o of CR.list) if (o.camp) o.leaving = 0;
   const n = NPCS.list.find((q) => q.id === 'leader'); if (n) { n.leaving = 0.001; n.walkOff = Math.atan2(n.z - P.z, n.x - P.x); }
 }
-const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found', leader: LV.campHold ? 'leader_encounter' : null, merchant: 'merchant_shop', wraith: LV.story && LV.story.wraith && !LV.story.wraith.done ? 'wraith_talk' : null })[id];
+const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found', leader: LV.campHold ? 'leader_encounter' : null, merchant: 'merchant_shop', wraith: LV.story && LV.story.wraith && !LV.story.wraith.done ? 'wraith_talk' : null, king: S.finalChoice ? null : 'throne_room' })[id];
 
 export const NPCS = { list: [], lyn: null, extra: [] }; // extra: people who talk but are part of the scenery (the Gray Merchant)
 const _d = new THREE.Vector3();
@@ -213,9 +283,10 @@ export function openTalk(n) {
 }
 function render(fresh) {
   const t = G.talk, d = D[t.id], el = document.getElementById('dlg');
-  el.classList.remove('hidden'); document.getElementById('dlgWho').textContent = NAME[d.who];
-  const lastLine = t.line >= d.lines.length - 1, typedAll = t.typed >= d.lines[t.line].length;
+  el.classList.remove('hidden'); document.getElementById('dlgWho').textContent = NAME[lineWho(d, t.line)];
+  const lastLine = t.line >= d.lines.length - 1, typedAll = t.typed >= lineText(d, t.line).length;
   const ch = document.getElementById('dlgCh'); ch.innerHTML = '';
+  if (lastLine && typedAll && !t.shownAt) t.shownAt = performance.now(); // (so a held or mashed key cannot pick for you: see talkAdvance)
   if (lastLine && typedAll) d.choices.forEach((c, i) => {
     const ok = !c.req || c.req(), b = document.createElement('button');
     b.className = 'dch' + (i === t.sel ? ' on' : '') + (ok ? '' : ' no'); b.innerHTML = `<i>${i + 1}</i>${c.text}${c.req ? `<em>${ok ? '' : c.why()}</em>` : ''}`;
@@ -224,12 +295,12 @@ function render(fresh) {
   });
   document.getElementById('dlgMore').style.visibility = !lastLine && typedAll ? 'visible' : 'hidden';
   document.getElementById('dlgCoins').textContent = d.shop ? `◈ ${S.coins} coins` : '';
-  document.getElementById('dlgTxt').textContent = d.lines[t.line].slice(0, Math.floor(t.typed)); // (skipping the typing shows the whole line)
+  document.getElementById('dlgTxt').textContent = lineText(d, t.line).slice(0, Math.floor(t.typed)); // (skipping the typing shows the whole line)
 }
 function finishTalk() { G.talk = null; G.paused = false; document.body.classList.remove('talking'); document.getElementById('dlg').classList.add('hidden'); }
 function choose(i) {
   const t = G.talk; if (!t) return; const d = D[t.id], c = d.choices[i];
-  if (!c || t.line < d.lines.length - 1 || t.typed < d.lines[t.line].length) return;
+  if (!c || t.line < d.lines.length - 1 || t.typed < lineText(d, t.line).length) return;
   if (c.req && !c.req()) { sfx.wrong && sfx.wrong(); return; }
   if (c.fn) { c.fn(); if (d.shop) { t.sel = i; render(); return; } finishTalk(); return; }
   if (c.next) { if (d.done) d.done(); G.talk = { id: c.next, n: t.n, line: 0, typed: 0, sel: 0 }; render(true); return; }
@@ -237,9 +308,10 @@ function choose(i) {
 }
 // one press: finish the typing, or the next line, or pick the highlighted choice
 export function talkAdvance() {
-  const t = G.talk; if (!t) return; const d = D[t.id], L = d.lines[t.line];
+  const t = G.talk; if (!t) return; const d = D[t.id], L = lineText(d, t.line);
   if (t.typed < L.length) { t.typed = L.length; render(); return; }
   if (t.line < d.lines.length - 1) { t.line++; t.typed = 0; render(true); return; }
+  if (performance.now() - (t.shownAt || 0) < 600) return; // the choices have only just appeared
   choose(t.sel);
 }
 export function talkKey(code) {
@@ -247,17 +319,17 @@ export function talkKey(code) {
   const m = /^Digit([1-9])$/.exec(code); if (m) { const i = +m[1] - 1; t.sel = i; choose(i); return; }
   if (code === 'ArrowUp' || code === 'KeyW') { t.sel = (t.sel + d.choices.length - 1) % d.choices.length; render(); return; }
   if (code === 'ArrowDown' || code === 'KeyS') { t.sel = (t.sel + 1) % d.choices.length; render(); return; }
-  if (code === 'Escape' || code === 'Backspace') { if (d.done && t.line === d.lines.length - 1 && t.typed >= d.lines[t.line].length) d.done(); finishTalk(); return; }
+  if (code === 'Escape' || code === 'Backspace') { if (d.done && t.line === d.lines.length - 1 && t.typed >= lineText(d, t.line).length) d.done(); finishTalk(); return; }
   if (code === 'Space' || code === 'Enter' || code === 'KeyR' || code === 'KeyE') talkAdvance();
 }
 
 // ---------- per frame ----------
 export function updateNPCs(dt, live) {
   const T = performance.now() / 1000;
-  updateWraithHall(live);
+  updateWraithHall(live); updateThrone(live);
   if (live && LV.floor === 5 && S.lynJoined && !G.tips.lynThrone && Math.hypot(P.x - LV.exit.x, P.z - LV.exit.z) < 9) { G.tips.lynThrone = 1; H.say('Whatever happens in there — I’m glad I came.', true, 'lyn'); }
   if (G.talk) { // type the line
-    const t = G.talk, L = D[t.id].lines[t.line];
+    const t = G.talk, L = lineText(D[t.id], t.line);
     if (t.typed < L.length) { t.typed = Math.min(L.length, t.typed + dt * 52); document.getElementById('dlgTxt').textContent = L.slice(0, Math.floor(t.typed)); if (t.typed >= L.length) render(); }
   }
   for (const n of [...NPCS.list]) {
