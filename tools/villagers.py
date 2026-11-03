@@ -14,6 +14,10 @@ PEOPLE = {
   'lyn': ('CR21_lyn_turnaround', ['front', 'side', 'back', 'tq'], 1.72, {'xmax': 1170}),
   'ged': ('CR23_ged_sheet', ['front', 'side', 'back'], 1.86, {'xmax': 900}),
   'girl': ('CR24_girl_sheet', ['front', 'side', 'back'], 1.25, {'xmax': 860, 'vopen': 5}),
+  # the robed ones of the last floors: the same hull, no legs to speak of
+  'wraith': ('CR41_wraith_sheet', ['front', 'side', 'back', 'tq'], 2.3, {'xmax': 1280, 'cuts': [636]}),
+  'king': ('CR43_king_turnaround', ['front', 'side', 'back', 'tq'], 2.3, {}),
+  'witness': ('CR45_witness_form', ['front', 'side', 'back'], 3.05, {'xmax': 1340, 'cuts': [930], 'flip': True}),
 }
 def runs(row, minw):
     xs = np.nonzero(row)[0]
@@ -24,6 +28,7 @@ def runs(row, minw):
     return out
 def fit(name):
     sheet, order, H, opts = PEOPLE[name]
+    opts = dict(opts); force = opts.pop('flip', None)   # robes hide the toes the profile test looks for
     im, lab, comps = segment(REF + sheet + '.png', min_area=1500, **opts)
     comps = sorted(sorted(comps, key=lambda c: -c['area'])[:len(order)], key=lambda c: c['x0'])
     V = {v: c for v, c in zip(order, comps)}
@@ -41,6 +46,7 @@ def fit(name):
     f0 = runs(sm[sy1 - int(0.025 * ppm)], thin); f1 = runs(sm[sy1 - int(0.13 * ppm)], thin)
     fc = (f0[0][0] + f0[-1][1]) / 2; ac = (f1[0][0] + f1[-1][1]) / 2
     flip = fc > ac   # toes to the right: the profile faces right
+    if force is not None: flip = force
     sz = lambda x: ((x - ac) if flip else (ac - x)) / ppm
     rows = []
     y = 0.02

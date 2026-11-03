@@ -69,7 +69,7 @@ export function buildWorld() {
   const ctx = (W.ctx = { group, addCullable, W, cellOf });
   // the curse drains the colour: the Gray Forest's world is tinted cold and grey (vertex-colour materials are shared)
   ash.uGray.value = LV.floor === 2 ? 0.88 : LV.floor === 1 ? 0.62 : 0; // Ash Hollow and the Gray Forest: colour only where light falls
-  if (LV.floor === 4) buildRuinsWorld(ctx); else buildWoods(ctx);
+  if (LV.floor >= 4) buildRuinsWorld(ctx); else buildWoods(ctx);
   if (LV.floor <= 3) buildTrails(ctx);
   if (LV.floor === 1) buildVillage(ctx);
   buildCommon(ctx);
@@ -352,7 +352,7 @@ function buildVillage(ctx) {
 
 function buildCommon(ctx) {
   const { group, addCullable } = ctx;
-  const ruins = LV.floor === 4;
+  const ruins = LV.floor >= 4;
 
   // ---- braziers: iron baskets on tripods (the camp's is a ring of stones; the ruins carve theirs) ----
   const brGeo = shared('brazier', () => { const b = new GeoBuilder(), iron = col(0x2e2a26), ash = col(0x3a3430);
@@ -460,7 +460,7 @@ export function ensureDetail() {
 }
 
 function buildCover(q) {
-  const ruins = LV.floor === 4, vars = ruins ? ruinCoverVariants(q) : coverVariants(q), S = ruins ? RUIN_COVER_CELL : COVER_CELL, N = Math.ceil((LV.w * TILE) / S), Nz = Math.ceil((LV.h * TILE) / S);
+  const ruins = LV.floor >= 4, vars = ruins ? ruinCoverVariants(q) : coverVariants(q), S = ruins ? RUIN_COVER_CELL : COVER_CELL, N = Math.ceil((LV.w * TILE) / S), Nz = Math.ceil((LV.h * TILE) / S);
   const cx = new Float32Array(N * Nz), cz = new Float32Array(N * Nz), rot = new Float32Array(N * Nz), scl = new Float32Array(N * Nz), vr = new Int8Array(N * Nz).fill(-1);
   const wsum = vars.reduce((a, v) => a + v.w, 0);
   for (let j = 0; j < Nz; j++) for (let i = 0; i < N; i++) {

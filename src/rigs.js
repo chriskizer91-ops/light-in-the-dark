@@ -148,6 +148,7 @@ export function projectUV(geo, atlas, extra = [], o = {}) {
       for (let k = 0; k < 3; k++) { const i = t + k, u = DEC.getX(i), v = 1 - DEC.getY(i); for (const A of [uv, uvF, uvS, uvT]) { A[i * 2] = u; A[i * 2 + 1] = v; } uvW[i * 3] = 1; uvW[i * 3 + 1] = uvW[i * 3 + 2] = 0; }
       continue;
     }
+    if (!names.length) continue; // an atlas of decals only (the choir)
     const noSide = (atlas.sideFlip ? nr.x > 0 : nr.x < 0) && o.mirrorSkip && o.mirrorSkip(cen.x, cen.y, cen.z); // the side that reuses the profile mirrored
     w.front = nr.z; w.back = -nr.z; w.top = nr.y; w.side = noSide ? -9 : Math.abs(nr.x) * (o.sideBias || 1);
     let best = names[0];
@@ -786,6 +787,34 @@ function hound(q) {
 }
 
 // =====================================================================
+//  RESONANCE CHOIR (CR39) — a broken bronze bell that floats at chest
+//  height, and four porcelain masks that sing around it on threads of
+//  violet light. It never strikes: it makes the others sharper. Its
+//  pieces wear their own pictures (tools/choir.py cuts them from the sheet).
+// =====================================================================
+function choir(q) {
+  srand(8008 + q);
+  const def = bones([['root', null, 0, 0, 0], ['core', 'root', 0, 1.3, 0], ['ring', 'core', 0, 1.35, 0]]);
+  const B = new RigBuilder(def), V = ATLAS.choir ? ATLAS.choir.views : null, seg = Q(q, [10, 16, 24, 32]);
+  const decalOf = (R, cx, cy, rx, ry) => (R ? (x, y) => [lerp(R[0], R[2], clamp(0.5 + 0.5 * (x - cx) / rx, 0, 1)), lerp(R[1], R[3], clamp(0.5 - 0.5 * (y - cy) / ry, 0, 1))] : null);
+  // the bell: a cracked dome, open and ragged beneath
+  const prof = []; for (let i = 0; i <= 10; i++) { const t = i / 10, a = t * Math.PI * 0.5; prof.push(new THREE.Vector2(0.02 + 0.27 * Math.sin(a) + (t > 0.85 ? 0.03 * (t - 0.85) / 0.15 : 0), 1.52 - 0.42 * (1 - Math.cos(a)) - (t > 0.8 ? 0.12 * (t - 0.8) / 0.2 : 0))); }
+  const bell = new THREE.LatheGeometry(prof, seg); { const p = bell.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); if (y < 1.2) p.setY(i, y - 0.08 * Math.max(0, nz3(p.getX(i) * 9, 2, p.getZ(i) * 9))); } }
+  B.add(bell, 'core', C(0x5a4a30), { decal: decalOf(V && V.bell, 0, 1.3, 0.33, 0.27) });
+  B.add(blob(1), 'core', C(0x6a5a3a), { matrix: M(0, 1.55, 0, 0, 0, 0, 0.04, 0.05, 0.04), decal: decalOf(V && V.bell, 0, 1.3, 0.33, 0.27) }); // the crown knob
+  // the four singers, each in its frame, on the ring that turns about the bell
+  const masks = [[-0.56, 1.42], [0.56, 1.42], [0, 2.1], [0, 0.55]];
+  for (const [mx, my] of masks) {
+    B.add(blob(Q(q, [1, 2, 2, 3]), (x, y, z) => [x, y, z < 0 ? z * 0.4 : z]), 'ring', C(0xd8d0c0), { matrix: M(mx, my, 0.02, 0, 0, 0, 0.12, 0.155, 0.07), decal: decalOf(V && V.face, mx, my, 0.15, 0.19) });
+    B.add(new THREE.TorusGeometry(1, 0.08, 4, seg), 'ring', C(0x8a6a3a), { matrix: M(mx, my, 0.0, 0, 0, 0, 0.135, 0.17, 0.12), decal: decalOf(V && V.face, mx, my, 0.15, 0.19) });
+    // the thread of light from the bell to it
+    const a = new V3(mx * 0.45, lerp(1.3, my, 0.45), 0), b = new V3(mx * 0.92, lerp(1.3, my, 0.86), 0), d = b.clone().sub(a);
+    B.add(new THREE.CylinderGeometry(0.008, 0.008, d.length(), 4), 'ring', [1.1, 0.6, 1.9], { slot: 2, matrix: along(a.clone().add(b).multiplyScalar(0.5), d.normalize()) });
+  }
+  return { def, geo: B.build(), eyes: null, height: 2.2, roughness: 0.55, side: THREE.FrontSide, accent: 'glow' };
+}
+
+// =====================================================================
 //  THE VILLAGE PEOPLE (CR19–CR24) — Elder Maren, Sev, Lyn, Farmer Ged and
 //  the girl. Each body is lofted straight through its sheet's silhouettes:
 //  at every 4 cm of height, the front view gives the width and the side
@@ -794,6 +823,7 @@ function hound(q) {
 //  Legs split where the silhouette does; arms that hang clear of the body
 //  get their own limbs. Then the sheet is projected on (projectUV).
 // =====================================================================
+const ROBED = new Set(['wraith', 'king', 'witness']);
 function figure(q, who) {
   const F = FIG[who], H = F.H, rows = F.rows;
   srand(9100 + q * 7 + who.length);
@@ -812,6 +842,11 @@ function figure(q, who) {
       if (L) legs.L.push({ y: r.y, f: L, s: su }); if (R) legs.R.push({ y: r.y, f: R, s: su });
     }
   }
+  if (ROBED.has(who)) for (let i = 2; i < body.length - 2; i++) { // a halo ring or a held blade widens a row or two of the hull: take its neighbours' width
+    const r = body[i], nb = [body[i - 2], body[i - 1], body[i + 1], body[i + 2]], hw = nb.reduce((a, q) => a + half(q.f), 0) / 4, hd = nb.reduce((a, q) => a + half(q.s), 0) / 4;
+    if (half(r.f) > hw * 1.18) { const m = (nb[1].f[0] + nb[1].f[1] + nb[2].f[0] + nb[2].f[1]) / 4; r.f = [m - hw, m + hw]; }
+    if (half(r.s) > hd * 1.25) { const m = (nb[1].s[0] + nb[1].s[1] + nb[2].s[0] + nb[2].s[1]) / 4; r.s = [m - hd, m + hd]; }
+  }
   const crotch = legs.L.length ? legs.L[legs.L.length - 1].y : 0, at = (y) => body.reduce((m, r) => (Math.abs(r.y - y) < Math.abs(m.y - y) ? r : m), body[0]);
   const zc = mid(at(H * 0.6).s), sh = at(H * 0.8), shX = Math.max(0.12, half(sh.f) * 0.78), legX = legs.L.length ? Math.abs(mid(legs.L[Math.floor(legs.L.length / 2)].f)) : 0.1;
   const def = bones([
@@ -820,6 +855,7 @@ function figure(q, who) {
     ['shR', 'chest', -shX, H * 0.81, zc], ['elR', 'shR', -shX - 0.03, H * 0.62, zc], ['hdR', 'elR', -shX - 0.04, H * 0.47, zc + 0.03],
     ['thL', 'hips', legX, Math.max(crotch, H * 0.45), zc], ['knL', 'thL', legX, H * 0.28, zc], ['ftL', 'knL', legX, H * 0.05, zc],
     ['thR', 'hips', -legX, Math.max(crotch, H * 0.45), zc], ['knR', 'thR', -legX, H * 0.28, zc], ['ftR', 'knR', -legX, H * 0.05, zc],
+    ...(who === 'witness' ? [['halo', 'chest', 0, 2.45, zc], ['crown', 'head', 0, 3.25, zc]] : []),
   ]);
   const B = new RigBuilder(def), radial = Q(q, [8, 12, 16, 22]), ringK = Q(q, [0.5, 1, 1.5, 2]), cloth = [0.45, 0.4, 0.35];
   const ctrl = (list, zs = 1, xs = 1) => list.map((r) => ({ p: [mid(r.f), r.y, mid(r.s)], r: [half(r.f) * xs, Math.max(0.02, half(r.s) * zs)] }));
@@ -851,12 +887,25 @@ function figure(q, who) {
     B.add(new THREE.BoxGeometry(0.17, 0.025, 0.025), 'hdR', steel, { slot: 2, matrix: M(x, 1.66, z) });
     for (const tx of [-0.068, -0.023, 0.023, 0.068]) B.add(cone(4, 0.008, 0.28), 'hdR', steel, { slot: 2, flat: true, matrix: M(x + tx, 1.66, z) });
   }
-  return { def, geo: B.build(), eyes: null, height: H, roughness: 0.88, side: THREE.FrontSide, accent: 'steel', person: true };
+  else if (who === 'wraith') { // the captain's long sword, point down across his robes, as drawn
+    const hand = new V3(-0.26, 1.26, zc + 0.12), tip = new V3(0.04, 0.09, zc + 0.3), dir = tip.clone().sub(hand), L = dir.length(); dir.normalize();
+    B.add(new THREE.BoxGeometry(0.012, L * 0.86, 0.045, 1, Q(q, [2, 6, 10, 14]), 1), 'hdR', (x, y, z, nx) => shade(steel, Math.abs(nx) > 0.7 ? 1 : 0.7), { slot: 2, matrix: along(hand.clone().addScaledVector(dir, L * 0.5), dir) });
+    B.add(new THREE.BoxGeometry(0.028, 0.024, 0.2), 'hdR', brass, { slot: 2, matrix: along(hand.clone().addScaledVector(dir, 0.07), dir) });
+    B.add(new THREE.CylinderGeometry(0.016, 0.016, 0.16, seg), 'hdR', C(0x2a2228), { slot: 2, matrix: along(hand.clone().addScaledVector(dir, -0.02), dir) });
+  } else if (who === 'witness') { // the crown floats above it, two rings of light turn about it, and the eye in its breast burns
+    const gold = C(0xd8a840), ring = (r, y, k) => B.add(new THREE.TorusGeometry(r, 0.012, 4, Q(q, [24, 40, 56, 72])), 'halo', [1.6 * k, 1.1 * k, 0.5 * k], { slot: 2, matrix: M(0, y, zc, Math.PI / 2 + (k - 1) * 0.08, 0, 0) });
+    ring(0.95, 2.45, 1); ring(0.82, 2.5, 0.8);
+    B.add(new THREE.CylinderGeometry(0.17, 0.15, 0.08, Q(q, [10, 16, 22, 28]), 1, true), 'crown', gold, { slot: 2, matrix: M(0, 3.22, zc) });
+    for (let i = 0, n = 7; i < n; i++) { const a = (i / n) * TAU; B.add(cone(4, 0.03, i % 2 ? 0.1 : 0.16), 'crown', gold, { slot: 2, flat: true, matrix: M(Math.cos(a) * 0.16, 3.26, zc + Math.sin(a) * 0.16) }); }
+    B.add(blob(Q(q, [1, 2, 2, 3]), (x, y, z) => [x, y, z * 0.35]), 'chest', [2.2, 1.5, 0.6], { slot: 2, matrix: M(0, 2.64, zc + 0.3, 0, 0, 0, 0.11, 0.3, 0.08) });
+  }
+  const eyes = who === 'wraith' ? { bone: 'head', pos: [0, 2.12, zc + 0.16], spread: 0.035, n: 2 } : who === 'witness' ? { bone: 'chest', pos: [0, 2.64, zc + 0.34], spread: 0, n: 1 } : null;
+  return { def, geo: B.build(), eyes, height: H, roughness: 0.88, side: ROBED.has(who) ? THREE.DoubleSide : THREE.FrontSide, accent: who === 'witness' ? 'glow' : 'steel', person: true };
 }
 
-const BUILDERS = { wolf, leech, moth, bandit: (q) => bandit(q, false), leader: (q) => bandit(q, true), sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound, maren: (q) => figure(q, 'maren'), sev: (q) => figure(q, 'sev'), lyn: (q) => figure(q, 'lyn'), ged: (q) => figure(q, 'ged'), girl: (q) => figure(q, 'girl') };
+const BUILDERS = { wolf, leech, moth, bandit: (q) => bandit(q, false), leader: (q) => bandit(q, true), sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound, maren: (q) => figure(q, 'maren'), sev: (q) => figure(q, 'sev'), lyn: (q) => figure(q, 'lyn'), ged: (q) => figure(q, 'ged'), girl: (q) => figure(q, 'girl'), wraith: (q) => figure(q, 'wraith'), king: (q) => figure(q, 'king'), witness: (q) => figure(q, 'witness'), choir };
 const cache = {};
-export const TEXTURED = new Set(['wolf', 'bandit', 'leader', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl']); // leech: its atlas is built (tools/atlas.py), body not yet refit
+export const TEXTURED = new Set(['wolf', 'bandit', 'leader', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl', 'wraith', 'king', 'witness', 'choir']); // leech: its atlas is built (tools/atlas.py), body not yet refit
 export function getRig(type, q) {
   const k = type + q;
   if (!cache[k]) {

@@ -24,19 +24,22 @@ export const DEFS = {
   // Floor IV (the 2D Crown's numbers, in metres)
   sentinel: { name: 'Wax Sentinel', hp: 78, speed: 2.2, r: 0.6, sense: 18, damage: 18, range: 2.2, windup: 0.62, recover: 0.56, lunge: 0, lungeSpeed: 0, eye: 0xff9646, sy: 1.1, sr: 1.25, scale: 1 },
   guardian: { name: 'Ruin Guardian', hp: 90, speed: 2.4, r: 0.82, sense: 20, damage: 16, range: 3.0, windup: 0.66, recover: 0.6, lunge: 0, lungeSpeed: 0, eye: 0xffb060, sy: 1.5, sr: 1.8, scale: 1.4 },
+  // Floor V: the choir sings the others sharper and never strikes; the wraith is Aldric's captain (the 2D Crown's numbers)
+  choir: { name: 'Resonance Choir', hp: 20, speed: 2.7, r: 0.5, sense: 16, damage: 0, range: 0, windup: 0, recover: 0.2, lunge: 0, lungeSpeed: 0, eye: 0, sy: 1.3, sr: 1.1 },
+  wraith: { name: 'Bound Wraith', hp: 70, speed: 4.6, r: 0.5, sense: 18, damage: 15, range: 3.2, windup: 0.42, recover: 0.42, lunge: 0.18, lungeSpeed: 12, eye: 0xc8dcff, sy: 1.2, sr: 1.35 },
   hound: { name: 'Gloom Hound', hp: 42, speed: 4.2, r: 0.48, sense: 17, damage: 14, range: 3.6, windup: 0.45, recover: 0.4, lunge: 0.18, lungeSpeed: 13.5, eye: 0xb4e4ff, sy: 0.65, sr: 1.1 },
 };
 const STONE = (e) => e.type === 'sentinel' || e.type === 'guardian';
 export const CR = { list: [], dead: [], dangerNear: 99 };
-const SEEN = { wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.', moth: 'The small ones drink light.', leech: 'It hates the bright edge.',
+const SEEN = { choir: 'Something is making them sharper. Find the source.', wraith: 'That one was a soldier once.', wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.', moth: 'The small ones drink light.', leech: 'It hates the bright edge.',
   sentinel: 'Stone wakes in bright rooms.', hound: 'It wants the dark run-up.', guardian: 'The guardian. It has waited a long time for someone.' };
 
 // shared materials: glossy bits (eyes, teeth, claws, noses), steel, and self-lit glow (leech pustules, moth embers)
 const GLOSS = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0xffffff, dithering: true }));
 const STEEL = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0xfff0d8, dithering: true }));
 const GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-const SCORE = { wolf: 6, leech: 6, moth: 4, bandit: 10, leader: 18, sentinel: 16, guardian: 20, hound: 10, choir: 5 }; // the 2D Crown's scores
-const TONE = { wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.42, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
+const SCORE = { wraith: 18, wolf: 6, leech: 6, moth: 4, bandit: 10, leader: 18, sentinel: 16, guardian: 20, hound: 10, choir: 5 }; // the 2D Crown's scores
+const TONE = { choir: 0.5, wraith: 0.3, wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.42, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
 const spriteMat = (color, add) => new THREE.SpriteMaterial({ map: glowTex, color, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
 
 // ---------- visuals ----------
@@ -114,7 +117,7 @@ export function addCreature(type, x, z, o = {}) { const e = spawn({ type, x, z, 
 // ---------- light at a creature (lantern needs line of sight; braziers and flares don't care) ----------
 function lightAtE(e) { const y = e.type === 'moth' ? e.fy : 0.6; return Math.max(e.los ? lanternLevel(e.x, y, e.z) : 0, worldLevel(e.x, e.z)); }
 function lightAtP(x, z) { return Math.max(lanternLevel(x, 0.5, z), worldLevel(x, z)); }
-function enemySeesPlayer(e) { const st = MODES[lantern.mode].stealth * (lantern.k < 0.2 ? 0.6 : 1); return e.dist <= e.def.sense * st * DF.sense && e.los; }
+function enemySeesPlayer(e) { const st = MODES[lantern.mode].stealth * (lantern.k < 0.2 ? 0.6 : 1) * (e.choirT > 0 ? 1.4 : 1); return e.dist <= e.def.sense * st * DF.sense && e.los; } // a choir nearby: they notice you from further off
 function pickDarkNeighbor(e) {
   const tx = toTile(e.x), ty = toTile(e.z); let best = null, bs = -1e9;
   for (let y = -1; y <= 1; y++) for (let x = -1; x <= 1; x++) {
@@ -131,8 +134,8 @@ function chooseWanderTarget(e) {
 }
 const nudge = (e, a, d) => moveWithCollisions(e, Math.cos(a) * d / 0.08, Math.sin(a) * d / 0.08, 0.08);
 const angleTo = (ax, az, bx, bz) => Math.atan2(bz - az, bx - ax);
-const chestY = (e) => (e.type === 'moth' ? e.fy : e.type === 'bandit' ? 1.3 : e.type === 'wolf' ? 0.68 : e.type === 'hound' ? 0.85 : STONE(e) ? 1.4 * (e.def.scale || 1) : 0.35);
-const HIT_COL = { wolf: [1, 0.85, 0.6], leech: [0.75, 0.55, 1], moth: [1, 0.6, 0.25], bandit: [1, 0.85, 0.6], sentinel: [1, 0.9, 0.7], guardian: [0.9, 0.88, 0.8], hound: [0.75, 0.85, 1] };
+const chestY = (e) => (e.type === 'choir' ? 1.3 : e.type === 'wraith' ? 1.25 : e.type === 'moth' ? e.fy : e.type === 'bandit' ? 1.3 : e.type === 'wolf' ? 0.68 : e.type === 'hound' ? 0.85 : STONE(e) ? 1.4 * (e.def.scale || 1) : 0.35);
+const HIT_COL = { wraith: [0.75, 0.72, 1], choir: [1, 0.85, 0.5], witness: [1, 0.85, 0.5], wolf: [1, 0.85, 0.6], leech: [0.75, 0.55, 1], moth: [1, 0.6, 0.25], bandit: [1, 0.85, 0.6], sentinel: [1, 0.9, 0.7], guardian: [0.9, 0.88, 0.8], hound: [0.75, 0.85, 1] };
 
 // ---------- combat (ported) ----------
 export function interruptEnemy(e, stagger = 0.18) { e.windup = 0; e.lungeTime = 0; e.lungeSpeed = 0; e.hitOnce = false; e.attackKind = ''; e.recover = Math.max(e.recover, stagger); }
@@ -223,6 +226,7 @@ function kill(e, dir) {
   else if (e.type === 'leech') { burst(e.x, y, e.z, 24, [0.7, 0.45, 1], 2, 0.8, -3); dust(e.x, 0.3, e.z, 6, [0.12, 0.08, 0.16]); }
   else dust(e.x, 0.25, e.z, 7, [0.14, 0.13, 0.12]);
   if (Math.random() < 0.18) H.addPickup('fuel', e.x, e.z);
+  if (e.type === 'wraith' && !S.wraithEdge) { S.wraithEdge = true; S.coins += 15; P.atkBonus += 8; P.speedK += 0.08; H.hint('Relic: Wraith’s Edge — cold and certain.', 3.4); } // the captain's blade
   S.coins += Math.floor((SCORE[e.rig || e.type] || 5) * 0.6 + Math.random() * 4); // what they carried (the 2D Crown's coin drop)
   CR.list = CR.list.filter((o) => o !== e); CR.dead.push(e);
 }
@@ -233,6 +237,7 @@ function updateEnemy(e, dt) {
   const lightHere = e.light, sees = enemySeesPlayer(e), dP = e.dist, def = e.def;
   if (handleAction(e, dt)) return;
   if (e.type === 'moth') { mothAI(e, dt, lightHere, dP); return; }
+  if (e.type === 'choir') { choirAI(e, dt, dP); return; }
   if (e.type === 'leech') { e.lightStress = clamp(e.lightStress + (lightHere > 0.62 ? dt * 1.7 : -dt * 0.8), 0, 1.4); if (e.lightStress > 0.7 && e.exposed <= 0) exposeEnemy(e, 1.05); }
   if (STONE(e)) {
     // asleep until bright light finds it, it sees you close, or it is struck
@@ -290,6 +295,33 @@ function updateEnemy(e, dt) {
   }
 }
 // moths go to light: your lantern if it touches them, else they circle the nearest lit brazier
+// the choir keeps near the others, on the far side of them from you, and flees when it is alone with you
+function choirAI(e, dt, dP) {
+  let ally = null, ad = 15;
+  for (const o of CR.list) if (o !== e && o.alive && o.type !== 'choir' && o.type !== 'moth') { const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < ad) { ad = d; ally = o; } }
+  let tx, tz;
+  if (ally) { const away = Math.atan2(ally.z - P.z, ally.x - P.x) + Math.sin(G.t * 1.5 + e.x * 0.2) * 0.6; tx = ally.x + Math.cos(away) * 3.7; tz = ally.z + Math.sin(away) * 3.7; }
+  else if (dP < 11) { const away = Math.atan2(e.z - P.z, e.x - P.x); tx = e.x + Math.cos(away) * 3; tz = e.z + Math.sin(away) * 3; }
+  else { if (Math.random() < dt * 0.3) e.wanderAngle += rr(-0.8, 0.8); tx = e.x + Math.cos(e.wanderAngle) * 2; tz = e.z + Math.sin(e.wanderAngle) * 2; }
+  const a = Math.atan2(tz - e.z, tx - e.x), d = Math.hypot(tx - e.x, tz - e.z);
+  if (d > 0.4) moveWithCollisions(e, Math.cos(a) * e.speed * Math.min(1, d / 2), Math.sin(a) * e.speed * Math.min(1, d / 2), dt);
+  e.facing = lerpAngle(e.facing, Math.atan2(P.z - e.z, P.x - e.x), clamp(dt * 2, 0, 1)); // its masks keep their faces to you
+}
+function animChoir(e, dt, t) {
+  const b = e.b; e.gait += dt;
+  b.root.position.y = 0.06 * Math.sin(t * 1.3 + e.gait);
+  b.ring.rotation.z += dt * (0.25 + (e.choirSing || 0) * 1.2); // the singers circle the bell, faster when it sings the others on
+  b.core.rotation.y = Math.sin(t * 0.7) * 0.25; b.core.rotation.x = Math.sin(t * 0.9 + 1) * 0.06;
+}
+// the wraith floats a hand's width off the stone and leans into its rushes; its blade comes up on the wind-up
+function animWraith(e, dt, t) {
+  const b = e.b, k = k8(dt), lunging = e.lungeTime > 0, c = e.windup > 0 ? 1 - e.windup / Math.max(0.01, e.windupMax) : 0, s = clamp(e.vel / 4.5, 0, 1.5);
+  b.root.position.y = 0.08 + 0.05 * Math.sin(t * 1.6 + e.gait);
+  b.root.rotation.x = lerp(b.root.rotation.x, lunging ? 0.32 : 0.06 * s + c * -0.08 - e.recoil * 0.2, k);
+  rx(b.shR, lunging ? -1.35 : c > 0 ? -2.4 * c : -0.1 * s, damp(lunging ? 30 : 10, dt)); b.shR.rotation.z = lerp(b.shR.rotation.z, c * 0.4, k);
+  rx(b.chest, c * 0.12 + Math.sin(t * 1.1) * 0.02, k);
+  const look = e.state === 'chase' || c > 0 ? lookAtPlayer(e) : 0; b.neck.rotation.y = lerp(b.neck.rotation.y, look * 0.6, k);
+}
 function mothAI(e, dt, lh, dP) {
   let tx, tz, ty = 1.5;
   if (lh > 0.12 || dP < 4) { tx = P.x + Math.cos(e.gait * 0.05) * 0.4; tz = P.z + Math.sin(e.gait * 0.05) * 0.4; ty = 1.45; }
@@ -427,7 +459,7 @@ function animSentinel(e, dt, t) {
   rx(b.shL, shL, fast); rx(b.shR, shR, fast); rx(b.elL, -0.05 - c * 0.5, fast); rx(b.elR, -0.05 - c * 0.5, fast);
   b.shL.rotation.z = lerp(b.shL.rotation.z, 0.12 - c * 0.25, k); b.shR.rotation.z = lerp(b.shR.rotation.z, -0.12 + c * 0.25, k);
 }
-const ANIM = { wolf: animWolf, leech: animLeech, moth: animMoth, bandit: animBandit, sentinel: animSentinel, guardian: animSentinel, hound: animWolf };
+const ANIM = { choir: animChoir, wraith: animWraith, wolf: animWolf, leech: animLeech, moth: animMoth, bandit: animBandit, sentinel: animSentinel, guardian: animSentinel, hound: animWolf };
 function animDeath(e, dt) {
   e.dying += dt; const b = e.b, k = smooth(0, 0.55, e.dying);
   if (STONE(e)) { // it melts down into itself
@@ -446,6 +478,10 @@ function animDeath(e, dt) {
     e.fy = Math.max(0.12, e.fy - dt * (1 + e.dying * 6)); b.root.rotation.z += dt * 6 * (e.fy > 0.15 ? 1 : 0);
     b.fwL.rotation.z = b.hwL.rotation.z = lerp(b.fwL.rotation.z, -0.3, 0.1); b.fwR.rotation.z = b.hwR.rotation.z = -b.fwL.rotation.z;
     if (e.glow) e.glow.material.opacity = Math.max(0, 0.6 - e.dying * 0.5);
+  } else if (e.type === 'choir') { // the bell drops and the masks go quiet
+    b.root.position.y = -k * 1.05; b.ring.rotation.z += dt * (1 - k) * 2; b.core.rotation.x = k * 0.6;
+  } else if (e.type === 'wraith') { // it comes apart downward, into its own rags
+    b.root.scale.y = Math.max(0.05, 1 - k * 0.9); b.root.position.y = -k * 0.1; rx(b.shR, 0.6, 0.1);
   } else if (e.type === 'bandit') {
     b.root.rotation.x = -k * 1.42; b.root.position.y = 0;
     rx(b.shR, -1.6, 0.15); rx(b.shL, -1.6, 0.15); rx(b.knL, 0.3, 0.15); rx(b.knR, 0.1, 0.15); rx(b.thL, -0.2, 0.15); rx(b.head, -0.3, 0.1);
@@ -476,6 +512,8 @@ export function updateCreatures(dt, camera) {
   pxPerM = (2 * Math.tan((camera.fov * Math.PI) / 360)) / Math.min(G.renderH, 400);
   let danger = 0, near = 99;
   CR.dead = CR.dead.filter((e) => { e.dist = Math.hypot(P.x - e.x, P.z - e.z); return dt > 0 ? animDeath(e, dt) : true; });
+  for (const e of CR.list) { e.choirT = Math.max(0, (e.choirT || 0) - dt); if (e.type === 'choir') e.choirSing = 0; }
+  for (const c of CR.list) if (c.type === 'choir' && c.alive) for (const o of CR.list) if (o !== c && o.type !== 'choir' && Math.hypot(o.x - c.x, o.z - c.z) < 7.5) { o.choirT = 0.3; c.choirSing = 1; }
   for (const e of [...CR.list]) {
     const dx = P.x - e.x, dz = P.z - e.z; e.dist = Math.hypot(dx, dz) || 0.001;
     e.losT -= dt; if (e.losT <= 0) { e.losT = 0.12 + Math.random() * 0.06; e.los = e.dist < 45 && lineOfSight(P.x, P.z, e.x, e.z); }

@@ -123,7 +123,7 @@ export function updateAudio(dt, x, z, fwd, live, dangerNear, danger) {
     L.positionX.value = x; L.positionY.value = 1.62; L.positionZ.value = z;
     L.forwardX.value = fwd.x; L.forwardY.value = fwd.y; L.forwardZ.value = fwd.z; L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
   } else { L.setPosition(x, 1.62, z); L.setOrientation(fwd.x, fwd.y, fwd.z, 0, 1, 0); }
-  const ruins = AU.floor === 4;
+  const ruins = AU.floor >= 4;
   // the woods: wind in the canopy, crickets that hush; the ruins: a low draught, water dripping somewhere, no insects
   AU.wind.gain.setTargetAtTime(live ? (ruins ? 0.022 : 0.042) : 0.028, now, 0.5);
   AU.bugs.gain.setTargetAtTime(ruins ? 0 : live ? 0.45 * clamp((dangerNear - 6) / 12, 0, 1) : 0.18, now, 0.4);

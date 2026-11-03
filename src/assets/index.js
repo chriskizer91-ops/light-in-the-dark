@@ -14,11 +14,17 @@ import sev from './sev.webp'; import sevJ from './sev.json'; import sevF from '.
 import lyn from './lyn.webp'; import lynJ from './lyn.json'; import lynF from './fig_lyn.json';
 import ged from './ged.webp'; import gedJ from './ged.json'; import gedF from './fig_ged.json';
 import girl from './girl.webp'; import girlJ from './girl.json'; import girlF from './fig_girl.json';
+// the robed ones of Floors V and VI (the same hull fit): the wraith, the Hollow King, and what the crown makes of him
+import wraith from './wraith.webp'; import wraithJ from './wraith.json'; import wraithF from './fig_wraith.json';
+import king from './king.webp'; import kingJ from './king.json'; import kingF from './fig_king.json';
+import choir from './choir.webp'; import choirJ from './choir.json';
+import witness from './witness.webp'; import witnessJ from './witness.json'; import witnessF from './fig_witness.json';
 export const ATLAS = {
   sentinel: { url: sentinel, glowUrl: sentinelG, ...sentinelJ }, guardian: { url: guardian, glowUrl: guardianG, ...guardianJ }, hound: { url: hound, ...houndJ }, wolf: { url: wolf, ...wolfJ }, bandit: { url: bandit, ...banditJ }, leader: { url: leader, ...leaderJ },
   maren: { url: maren, ...marenJ }, sev: { url: sev, ...sevJ }, lyn: { url: lyn, ...lynJ }, ged: { url: ged, ...gedJ }, girl: { url: girl, ...girlJ },
+  wraith: { url: wraith, ...wraithJ }, king: { url: king, ...kingJ }, witness: { url: witness, ...witnessJ }, choir: { url: choir, ...choirJ },
 };
-export const FIG = { maren: marenF, sev: sevF, lyn: lynF, ged: gedF, girl: girlF };
+export const FIG = { maren: marenF, sev: sevF, lyn: lynF, ged: gedF, girl: girlF, wraith: wraithF, king: kingF, witness: witnessF };
 // the three murals and the three carved signs of Floor IV, cut from CR49 (tools/murals.py)
 import murals from './murals.webp'; import plaques from './plaques.webp'; import plaquesGlow from './plaques_glow.webp';
 export const PANELS = { murals, plaques, plaquesGlow, order: ['crown', 'light', 'shadow'] };

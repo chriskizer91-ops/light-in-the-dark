@@ -1,5 +1,5 @@
 import { THREE, psx, clamp, lerp, damp, lerpAngle, rotYOfHeading, settings } from './engine.js';
-import { LV, TILE, toTile, isWalkable, lineOfSight, moveWithCollisions } from './level.js';
+import { LV, TILE, toTile, isWalkable, lineOfSight, moveWithCollisions, inRect } from './level.js';
 import { W, litTest } from './world3d.js';
 import { NEAR_R } from './lantern.js';
 import { getRig, makeSkeleton, rigMaterial } from './rigs.js';
@@ -15,8 +15,8 @@ import { CR, addCreature } from './creatures.js';
 //  and in the Gray Forest a girl is hiding. Walk up to someone, face them
 //  and press USE to talk. Lyn, once she joins, follows you floor to floor.
 // =====================================================================
-const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL', leader: 'BANDIT LEADER', merchant: 'THE GRAY MERCHANT' };
-const TONE = { maren: 0.62, sev: 0.6, lyn: 0.6, ged: 0.6, girl: 0.62, leader: 0.42 };
+const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL', leader: 'BANDIT LEADER', merchant: 'THE GRAY MERCHANT', wraith: 'THE WRAITH' };
+const TONE = { maren: 0.62, sev: 0.6, lyn: 0.6, ged: 0.6, girl: 0.62, leader: 0.42, wraith: 0.3 };
 const close = { text: 'Leave.', close: true };
 const D = {
   maren_initial: {
@@ -99,6 +99,17 @@ const D = {
       { text: 'Warding Plate — 45 coins', req: () => S.coins >= 45 && !S.wardingPlate, why: () => (S.wardingPlate ? 'bought' : '45 coins'), fn: () => { S.coins -= 45; S.wardingPlate = true; P.dr += 0.1; P.maxHp += 8; P.hp = Math.min(P.maxHp, P.hp + 8); sfx.relic(); H.hint('Warding Plate. +8 vitality, and blows land softer.', 3); } },
       close],
   },
+  // Floor V: Aldric's captain, in the great hall near the end (the 2D Crown's wraith_talk). He talks only if Sera is free.
+  wraith_talk: {
+    who: 'wraith', lines: [
+      '…Warden. You smell of the living and the freed. The spirit-woman is gone. The chains are broken.',
+      'I was Aldric’s captain. I chose to follow him into undeath. I did not choose this — this endlessness without purpose. Without weight.',
+      'End me. Or let me stand aside. I am too tired for conviction.'],
+    choices: [
+      { text: 'Let him stand aside.', fn: () => { S.learnedTruth = true; wraithDone(false); H.hint('The wraith steps aside. You understand something now about the king.', 3.6); } },
+      { text: 'Grant him rest.', fn: () => { S.learnedTruth = true; wraithDone(true); } },
+    ],
+  },
   leader_persuade: {
     who: 'leader', lines: ['…The village would take us? After what we’ve done to their caravans?', 'You’re either foolish or honest. I can’t tell. But the gray is spreading and we can’t eat bark forever. Fine. We’ll go.'],
     done: () => { if (S.banditsPersuaded) return; S.clearedBandits = S.banditsPersuaded = true; S.coins += 15; sfx.relic(); H.hint('+15 coins. The bandits leave for the village.', 3); campLeave(); },
@@ -118,13 +129,27 @@ function campFight() {
   sfx.shout && sfx.shout({ x: n ? n.x : P.x, z: n ? n.z : P.z }); H.say('Armed. Careful.');
 }
 H.campFight = campFight;
+// the wraith's answer: he goes, or he gives you the fight he asked for
+function wraithDone(fight) {
+  const w = LV.story.wraith; w.done = true;
+  const n = NPCS.list.find((q) => q.id === 'wraith'); if (!n) return;
+  if (fight) { const e = addCreature('wraith', n.x, n.z, { face: n.facing }); e.state = 'chase'; e.stateTime = 2; e.lastKnown = { x: P.x, z: P.z }; W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1); }
+  else n.leaving = 0.001; // he thins into the dark
+}
+// Floor V's hall: walking in wakes him; with Sera still bound he does not talk, he rises
+function updateWraithHall(live) {
+  const w = LV.story && LV.story.wraith; if (!w || w.done || !live) return;
+  if (!inRect(w.room, toTile(P.x), toTile(P.z))) return;
+  if (S.freedSpirit) { const n = NPCS.list.find((q) => q.id === 'wraith'), d = n ? Math.hypot(P.x - n.x, P.z - n.z) : 99; if (n && n.cool && d > 10) n.cool = false; if (n && !n.cool && !G.talk && d < 8 && lineOfSight(P.x, P.z, n.x, n.z)) { n.cool = true; openTalk(n); } return; }
+  w.done = true; const e = addCreature('wraith', w.x, w.z, { face: Math.atan2(P.z - w.z, P.x - w.x) }); e.state = 'chase'; e.stateTime = 2; e.lastKnown = { x: P.x, z: P.z }; H.say('The Wraith stirs.', true);
+}
 // ... or they get up from the fire and walk off toward the village
 function campLeave() {
   LV.campHold = false;
   for (const o of CR.list) if (o.camp) o.leaving = 0;
   const n = NPCS.list.find((q) => q.id === 'leader'); if (n) { n.leaving = 0.001; n.walkOff = Math.atan2(n.z - P.z, n.x - P.x); }
 }
-const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found', leader: LV.campHold ? 'leader_encounter' : null, merchant: 'merchant_shop' })[id];
+const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found', leader: LV.campHold ? 'leader_encounter' : null, merchant: 'merchant_shop', wraith: LV.story && LV.story.wraith && !LV.story.wraith.done ? 'wraith_talk' : null })[id];
 
 export const NPCS = { list: [], lyn: null, extra: [] }; // extra: people who talk but are part of the scenery (the Gray Merchant)
 const _d = new THREE.Vector3();
@@ -150,9 +175,10 @@ export function buildNPCs() {
   }
   if (S.lynJoined) { // Lyn comes down with you: she arrives a step behind
     const n = { id: 'lyn', x: P.x, z: P.z, facing: 0, r: 0.35, leaving: 0 }; makeVisual(n); NPCS.list.push(n); makeCompanion(n, true);
-    const bark = { 2: 'Wolves. Stay close.', 3: 'Bandit country. Their fires mean people, not help.', 4: 'Ruins. Don’t trust anything that stands still.' }[LV.floor];
+    const bark = { 2: 'Wolves. Stay close.', 3: 'Bandit country. Their fires mean people, not help.', 4: 'Ruins. Don’t trust anything that stands still.', 5: 'Deeper. Stay where I can see your light.' }[LV.floor];
     if (bark) setTimeout(() => H.say(bark, true, 'lyn'), 4500);
   }
+  if (LV.floor === 5 && LV.story && LV.story.wraith && S.freedSpirit) { const w = LV.story.wraith, n = { id: 'wraith', x: w.x, z: w.z, facing: -Math.PI / 2, r: 0.5, leaving: 0 }; makeVisual(n); NPCS.list.push(n); }
 }
 function makeCompanion(n, place) {
   NPCS.lyn = n; n.companion = true; n.stuck = 0; n.lost = 0; n.gait = 0; S.talkedToLyn = true;
@@ -228,6 +254,8 @@ export function talkKey(code) {
 // ---------- per frame ----------
 export function updateNPCs(dt, live) {
   const T = performance.now() / 1000;
+  updateWraithHall(live);
+  if (live && LV.floor === 5 && S.lynJoined && !G.tips.lynThrone && Math.hypot(P.x - LV.exit.x, P.z - LV.exit.z) < 9) { G.tips.lynThrone = 1; H.say('Whatever happens in there — I’m glad I came.', true, 'lyn'); }
   if (G.talk) { // type the line
     const t = G.talk, L = D[t.id].lines[t.line];
     if (t.typed < L.length) { t.typed = Math.min(L.length, t.typed + dt * 52); document.getElementById('dlgTxt').textContent = L.slice(0, Math.floor(t.typed)); if (t.typed >= L.length) render(); }
@@ -249,7 +277,7 @@ export function updateNPCs(dt, live) {
       n.vel = lerp(n.vel || 0, Math.hypot(n.x - px, n.z - pz) / Math.max(dt, 1e-4), damp(8, dt));
       if (n.leaving > 7 || (n.leaving > 2 && dist > 14)) { W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1); continue; }
     } else if (n.leaving) { n.leaving += dt; if (n.leaving > 2.4) { W.group.remove(n.grp); NPCS.list.splice(NPCS.list.indexOf(n), 1); continue; } }
-    n.grp.position.set(n.x, 0, n.z); n.grp.rotation.y = rotYOfHeading(n.facing);
+    n.grp.position.set(n.x, n.id === 'wraith' ? 0.08 + 0.05 * Math.sin(T * 1.6) : 0, n.z); n.grp.rotation.y = rotYOfHeading(n.facing);
     animate(n, dt, T, dist, talking);
     n.mat.color.setScalar(TONE[n.id] * clamp(Math.pow(dist / 4.5, 0.7), 0.4, 1) * (n.leaving && n.walkOff === undefined ? Math.max(0, 1 - n.leaving / 2.4) : 1));
     n.mesh.visible = !settings.culling || dist < NEAR_R + 0.8 || litTest(n.x, 1.0, n.z, 1.1);

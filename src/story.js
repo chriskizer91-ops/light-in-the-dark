@@ -175,7 +175,7 @@ export function slashStory(h, range, arc) {
   return hit;
 }
 function freeSera() {
-  const s = ST.sera; ST.freed = true; s.freeT = 0;
+  const s = ST.sera; ST.freed = true; s.freeT = 0; S.freedSpirit = true;
   sayAll(['Thank you. The King is not evil. He is trapped in his own certainty.', 'The crown holds him as it held me. Remember that, when you face him.'], 'sera', 5.2);
   sfx.spirit(1.2);
   P.maxHp += 8; P.hp = Math.min(P.maxHp, P.hp + 8); P.pulseCostMult *= 0.85;
@@ -205,7 +205,7 @@ function select(p) {
   H.hint('The symbols flash. Gray energy throws you back.  −15', 3); H.say('Not that one. Remember the walls.');
 }
 function solve() {
-  ST.solved = true; sfx.relic();
+  ST.solved = true; S.solvedPuzzle = true; sfx.relic();
   P.atkBonus += 5; P.brightBonus += 0.06; P.dr += 0.05;
   for (const p of ST.plaques) burst(p.x, p.y, p.z, 30, [1, 0.82, 0.4], 2, 1, -1);
   H.hint('Relic: the Crown Shard. Harder cuts, brighter light, and you are harder to hurt.', 5.5);

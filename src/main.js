@@ -64,6 +64,7 @@ const FLOORS = {
   2: { title: 'THE GRAY FOREST', lines: [['a', 2, 'No colour left in anything. Only what I touch.'], ['b', 9, 'Small footprints. Someone ran this way.']], exit: 'Roots, going down. The woods are deeper below.' },
   3: { title: 'THE DEEP WOODS', lines: [['a', 2, 'The trees have stopped growing. They remember how.'], ['b', 8, 'I am awake now. Do not let me go out.']], exit: 'Down. The roots go down.' },
   4: { title: 'THE EASTERN RUINS', lines: [['a', 2, 'The stone here was carved by hands that are still here.'], ['b', 9, 'Walls again. What is behind them stays dark to me until we go through.']], exit: 'Stairs. Down again, into the inner ruins.' },
+  5: { title: 'THE INNER RUINS', lines: [['a', 2, 'The dark does not scare me. The question of whether I can be scared — that is what scares me.'], ['b', 11, () => (S.freedSpirit ? 'She is free. I felt her go. Like a held breath released.' : S.solvedPuzzle ? 'The guardian is gone. What it guarded remains.' : '')]], exit: 'Down. The last stair. I can feel the crown from here.' },
 };
 // carry: the Warden's state from the floor above (health, oil, relics), or null for a fresh start
 function buildRun(seed, floor = 3, carry = null) {
@@ -114,7 +115,7 @@ function die() {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function descend() {
-  G.state = 'descending'; G.endT = 0; G.won = LV.floor === 4; sfx.descend();
+  G.state = 'descending'; G.endT = 0; G.won = LV.floor >= 5; sfx.descend(); // (Floor VI, the throne, is next to be built)
   if (G.won && document.pointerLockElement) document.exitPointerLock();
 }
 // down the roots into the ruins: health and oil carry over (+28 health, +50 oil, as in the Crown)
@@ -129,17 +130,17 @@ function nextFloor() {
 function showEnd() {
   const won = G.won, total = G.runT + G.t, m = Math.floor(total / 60), s = String(Math.floor(total % 60)).padStart(2, '0'), f = LV.floor;
   $('endTitle').textContent = won ? 'DOWN INTO THE DARK' : 'THE LANTERN GOES OUT';
-  const story = ST.on ? (ST.freed ? ' Sera is free.' : ST.solved ? ' The Crown Shard hums in your pack.' : ST.guardianDown ? ' The guardian is dust.' : '') : '';
-  $('endSub').textContent = won ? 'Floor V, the Inner Ruins, waits below.' + story : f === 4 ? 'The Eastern Ruins keep what they take.' : f === 2 ? 'The Gray Forest keeps what it takes.' : 'The Deep Woods keep what they take.';
+  const story = S.freedSpirit ? ' Sera is free.' : S.solvedPuzzle ? ' The Crown Shard hums in your pack.' : ST.on && ST.guardianDown ? ' The guardian is dust.' : '';
+  $('endSub').textContent = won ? 'The Hollow Throne waits below.' + story : f === 5 ? 'The Inner Ruins keep what they take.' : f === 4 ? 'The Eastern Ruins keep what they take.' : f === 2 ? 'The Gray Forest keeps what it takes.' : 'The Deep Woods keep what they take.';
   $('endStats').innerHTML = `${DF.name} \u00b7 ${won ? 'Descended' : 'Lasted'} in ${m}:${s}<br>Slain ${G.kills} · Oil found ${G.oilFound} · Caches ${G.secrets} · Braziers lit ${G.braziersLit}`;
-  $('againBtn').textContent = won ? 'AGAIN, FROM THE VILLAGE' : f === 4 ? 'AGAIN, FROM THE RUINS' : 'AGAIN, FROM THE VILLAGE';
-  G.endFloor = !won && f === 4 ? 4 : 1;
+  $('againBtn').textContent = won ? 'AGAIN, FROM THE VILLAGE' : f >= 4 ? 'AGAIN, FROM THE RUINS' : 'AGAIN, FROM THE VILLAGE';
+  G.endFloor = !won && f >= 4 ? f : 1;
   $('end').classList.remove('hidden'); $('hud').classList.add('hidden'); $('touchUI').classList.add('hidden'); $('tricksBtn').classList.add('hidden'); toggleTricks(false);
   G.state = 'ended'; showViewModels(false);
 }
 $('startBtn').addEventListener('click', () => { G.state = 'ended'; startGame(1); });
 // begin partway down (to try a floor without walking the ones above): › picks which
-const PICK = [2, 3, 4], ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+const PICK = [2, 3, 4, 5], ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
 let pickFloor = 3;
 const pickLabel = () => { $('startBtn4').textContent = 'BEGIN AT FLOOR ' + ROMAN[pickFloor] + ' · ' + FLOORS[pickFloor].title; };
 $('startBtn4').addEventListener('click', () => { G.state = 'ended'; startGame(pickFloor); });
@@ -213,7 +214,7 @@ function nearestBrazier(r, lit) { let best = null, bd = r; for (const b of LV.br
 function lightBrazier(b) {
   if (b.lit) return; b.lit = true; b.radius = 8; G.braziersLit++;
   P.fuel = Math.min(P.maxFuel, P.fuel + BAL.brazierLight); sfx.ignite(b); revealAround(b.x, b.z, 4);
-  H.hint(LV.floor === 4 ? 'A brazier catches. The stone remembers warmth.' : 'A brazier catches. The clearing exhales.', 2.6);
+  H.hint(LV.floor >= 4 ? 'A brazier catches. The stone remembers warmth.' : 'A brazier catches. The clearing exhales.', 2.6);
 }
 
 // ---------- what the light shows you: the map fills in as you light it ----------
@@ -326,7 +327,7 @@ function updateRules(dt) {
   discT -= dt; if (discT <= 0) { discT = 0.1; discover(); }
   // the floor's opening lines
   const T = G.t;
-  for (const [k, at, line] of FL.lines) if (T > at && !G.tips[k]) { G.tips[k] = 1; H.say(line, true); }
+  for (const [k, at, line] of FL.lines) if (T > at && !G.tips[k]) { G.tips[k] = 1; const L = typeof line === 'function' ? line() : line; if (L) H.say(L, true); }
   if (LV.floor === 4 && T > 16 && !G.tips.ruinsTip) { G.tips.ruinsTip = 1; G.tips.c = 1; H.hint(IS_TOUCH ? 'PULSE cracks sentinels open. FLARE breaks a lunge. LIGHT opens the shutter.' : 'E: pulse cracks sentinels open. F: flare breaks a lunge. Q: the shutter.', 6); }
   if (T > 14 && !G.tips.c) { G.tips.c = 1; H.hint(IS_TOUCH ? 'LIGHT opens and closes my shutter. Wider burns more oil.' : 'Q opens and closes my shutter (or 1, 2, 3). Wider burns more oil.', 5); }
   if (T > 30 && !G.tips.d) { G.tips.d = 1; H.hint(IS_TOUCH ? 'FLARE breaks them open. PULSE lights braziers and finds hidden caches.' : 'Right-click or F: flare breaks them open. E: pulse lights braziers and finds hidden caches.', 6); }
@@ -355,7 +356,7 @@ function updateItems(dt, t) {
     o.losT = o.losT || 0; glintOf(o, o.src.x, 0.35, o.src.z, 1);
   }
   const ex = W.exit, de = Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z);
-  ex.glow.visible = de < 40 && (de < 6 || lineOfSight(P.x, P.z, LV.exit.x, LV.exit.z - (LV.floor === 4 ? 2.2 : 0)));
+  ex.glow.visible = de < 40 && (de < 6 || lineOfSight(P.x, P.z, LV.exit.x, LV.exit.z - (LV.floor >= 4 ? 2.2 : 0)));
   ex.glow.material.opacity = 0.16 + 0.08 * Math.sin(t * 2.5);
   ex.hole.visible = ex.mesh.visible;
 }
@@ -365,7 +366,7 @@ function updateCamera(dt) {
   let y = 1.62, pitch = P.pitch;
   if (G.state === 'dead') { const k = smooth(0, 1.6, G.endT); y = lerp(1.62, 0.45, k); pitch = lerp(P.pitch, -0.5, k); }
   if (G.state === 'descending' && LV.floor === 1) { P.x = lerp(P.x, LV.exit.x + 4, 0.012); P.z = lerp(P.z, LV.exit.z, 0.02); pitch = lerp(P.pitch, 0, 0.05); } // out through the gate
-  else if (G.state === 'descending') { const k = smooth(0, 2.2, G.endT); y = lerp(1.62, -2.5, k); pitch = lerp(P.pitch, -0.9, Math.min(1, k * 2)); if (LV.floor === 4) { P.x = lerp(P.x, LV.exit.x, 0.02); P.z = lerp(P.z, LV.exit.z, 0.02); } }
+  else if (G.state === 'descending') { const k = smooth(0, 2.2, G.endT); y = lerp(1.62, -2.5, k); pitch = lerp(P.pitch, -0.9, Math.min(1, k * 2)); if (LV.floor >= 4) { P.x = lerp(P.x, LV.exit.x, 0.02); P.z = lerp(P.z, LV.exit.z, 0.02); } }
   const bobY = Math.sin(P.bob * 2) * 0.035 * P.moving, bobX = Math.cos(P.bob) * 0.025 * P.moving, sh = G.shake;
   camera.position.set(P.x + Math.cos(P.yaw) * bobX, y + bobY, P.z - Math.sin(P.yaw) * bobX);
   camera.rotation.set(pitch + (Math.random() - 0.5) * sh * 0.06, P.yaw + (Math.random() - 0.5) * sh * 0.06, 0);

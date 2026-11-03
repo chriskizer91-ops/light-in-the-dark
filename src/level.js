@@ -113,6 +113,7 @@ function pickEnemyType() {
   const r = rnd();
   if (LV.floor === 2) return r < 0.7 ? 'wolf' : 'moth'; // the Gray Forest (2D floor II): wolves, and the moths that drink light
   if (LV.floor === 4) return r < 0.25 ? 'sentinel' : r < 0.55 ? 'leech' : r < 0.8 ? 'moth' : 'hound';
+  if (LV.floor === 5) { if (r < 0.12) return 'choir'; const q = rnd(); return q < 0.3 ? 'sentinel' : q < 0.55 ? 'hound' : q < 0.8 ? 'leech' : 'moth'; } // the 2D Crown's dl5 table
   return r < 0.4 ? 'wolf' : r < 0.62 ? 'moth' : r < 0.8 ? 'leech' : 'bandit';
 }
 
@@ -166,6 +167,7 @@ export function generateLevel(seedVal, floor = 3) {
   srand(seedVal);
   if (floor === 1) generateVillage(seedVal);
   else if (floor === 4) generateRuins(seedVal);
+  else if (floor === 5) generateRuinsInner(seedVal);
   else generateWoods(seedVal, floor);
   if (!LV.npcs) LV.npcs = [];
   if (!LV.trails) LV.trails = [];
@@ -481,6 +483,74 @@ function generateRuins(seedVal) {
   // nothing may sit in or right beside the stairwell
   const clear = (o) => Math.hypot(o.x - LV.exit.x, o.z - LV.exit.z) > 3.2;
   LV.pickups = LV.pickups.filter(clear); LV.secrets = LV.secrets.filter(clear); LV.spawns = LV.spawns.filter(clear); LV.braziers = LV.braziers.filter(clear);
+  computeDepth();
+  return LV;
+}
+
+// =====================================================================
+//  FLOOR V — THE INNER RUINS (the 2D Crown's generateRuinsInner): the
+//  standard floor's halls and passages, deeper, under the same carved
+//  stone as Floor IV; the Resonance Choir sings among the others, and in a
+//  great hall near the end waits Aldric's captain, the wraith.
+// =====================================================================
+function generateRuinsInner(seedVal) {
+  const w = 86, h = 86;
+  LV = {
+    w, h, seed: seedVal, floor: 5, solid: true, name: 'THE INNER RUINS', numeral: 'V', holeTiles: [], npcs: [],
+    tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
+    rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null, story: { murals: [], plaques: [] },
+  };
+  const target = 13, rooms = [];
+  for (let att = 0; rooms.length < target && att < target * 30; att++) {
+    const great = rooms.length === target - 3; // the wraith's hall: the largest
+    const rw = great ? ri(14, 16) : ri(8, 14), rh = great ? ri(12, 14) : ri(8, 12), rx = ri(3, w - rw - 4), ry = ri(3, h - rh - 4);
+    if (overlapsRoom(rx, ry, rw, rh, rooms, 3)) continue;
+    const room = { x: rx, y: ry, w: rw, h: rh, shape: 'rect', roomType: great ? 'hall' : ['hall', 'vault', 'crypt', 'hall', 'gallery'][ri(0, 4)] };
+    carveRect(rx, ry, rw, rh);
+    if (rooms.length) { const a = roomWalkableCenter(rooms[rooms.length - 1]), b = roomWalkableCenter(room); carveWindingCorridor(a.x, a.y, b.x, b.y); }
+    rooms.push(room);
+  }
+  for (let i = 0; i < 2; i++) { const a = rooms[ri(1, rooms.length - 4)], b = rooms[ri(1, rooms.length - 4)]; if (a !== b) { const ac = roomWalkableCenter(a), bc = roomWalkableCenter(b); carveWindingCorridor(ac.x, ac.y, bc.x, bc.y); } }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) setTile(x, y, 0);
+  LV.rooms = rooms;
+  const first = rooms[0], last = rooms[rooms.length - 1], sp = roomWalkableCenter(first), ec = { x: last.x + Math.floor(last.w / 2), y: last.y + Math.floor(last.h / 2) };
+  LV.spawn = at(sp.x, sp.y);
+  // the way down: a stairwell in the last hall, like the Eastern Ruins'
+  LV.exit = { x: ec.x * TILE, z: ec.y * TILE, tx: ec.x, ty: ec.y, found: false };
+  LV.holeTiles = [idx(ec.x - 1, ec.y - 1), idx(ec.x, ec.y - 1), idx(ec.x - 1, ec.y), idx(ec.x, ec.y)];
+  LV.structures.push({ x: LV.exit.x, z: LV.exit.z, tx: ec.x, ty: ec.y, r: 1.75, kind: 'well' });
+  // the wraith's hall
+  const wr = rooms[rooms.length - 3], wc = roomWalkableCenter(wr);
+  LV.story.wraith = { ...at(wc.x, wc.y), room: wr };
+  // columns down the long sides of the bigger halls, a statue or two
+  const colonnade = (room) => {
+    const ys = [room.y + 2, room.y + room.h - 3];
+    for (const y of ys) for (let x = room.x + 2; x < room.x + room.w - 2; x += 3) {
+      let door = false; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!inRect(room, x + dx, y + dy) && isWalkable(x + dx, y + dy)) door = true;
+      if (door) continue;
+      const broken = rnd() < 0.35; addRuin(x, y, broken ? 'stump' : 'pillar', { h: broken ? rr(0.9, 2.1) : 0, v: ri(0, 1) });
+    }
+  };
+  rooms.forEach((r, i) => { if (i > 0 && r !== last && r.w >= 10 && r.h >= 9 && (r === wr || rnd() < 0.6)) colonnade(r); });
+  for (const r of rooms.slice(2, -1)) if (rnd() < 0.35 && r !== wr) { const c = roomWalkableCenter(r); addRuin(c.x, r.y + 1, 'statue', { r: 0.75, face: Math.PI / 2 }); }
+  // fire, oil, tonics, caches, and what lives here (none in the wraith's hall: he keeps it)
+  { for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) if (isOpenArea(sp.x + dx, sp.y + dy)) { placeBrazier(sp.x + dx, sp.y + dy, true); break; } }
+  rooms.forEach((room, i) => {
+    if (i === 0) return;
+    if (rnd() < 0.5 || room === wr) { const p = randomFloorTileInRoom(room); if (isOpenArea(p.x, p.y)) placeBrazier(p.x, p.y, false); }
+    for (let k = 0, n = rnd() < 0.4 ? 2 : 1; k < n; k++) if (rnd() < 0.6) { const p = randomFloorTileInRoom(room); placePickup(rnd() < 0.65 ? 'fuel' : 'health', p.x, p.y); }
+    if (room !== last && rnd() < 0.35) { const p = randomFloorTileInRoom(room); placeSecret('fuel', p.x, p.y); }
+    if (room === wr || room === last) return;
+    const c = roomWalkableCenter(room);
+    for (let k = 0, n = ri(1, 3); k < n; k++) {
+      const p = randomFloorTileInRoom(room); if (!isOpenArea(p.x, p.y)) continue;
+      const q = at(p.x, p.y); if (Math.hypot(q.x - LV.spawn.x, q.z - LV.spawn.z) < TILE * 9) continue;
+      LV.spawns.push({ type: pickEnemyType(), ...q, face: Math.atan2(c.y - p.y, c.x - p.x) });
+    }
+  });
+  const clear = (o) => Math.hypot(o.x - LV.exit.x, o.z - LV.exit.z) > 3.2;
+  LV.pickups = LV.pickups.filter(clear); LV.secrets = LV.secrets.filter(clear); LV.spawns = LV.spawns.filter(clear); LV.braziers = LV.braziers.filter(clear);
+  LV.structures = LV.structures.filter((o) => o.kind === 'well' || clear(o));
   computeDepth();
   return LV;
 }
