@@ -26,7 +26,7 @@ def glow_mask(rgb):
     m = ss(0.42, 0.75, lin[..., 0] - lin[..., 2]) * ss(0.55, 0.85, lin[..., 0])
     m = ndi.grey_dilation(m, size=(3, 3)); m = ndi.gaussian_filter(m, 1.0)
     return np.clip(m * 1.4, 0, 1)
-def build(name, sheet, order, keep, size=1024, margin=18, opts={}):
+def build(name, sheet, order, keep, size=1024, margin=18, opts={}, extras=()):
     opts = dict(opts); glow = opts.pop('glow', False); flip = opts.pop('flip', False)
     im, lab, comps = segment(REF + sheet + '.png', **opts)
     if len(comps) < len(order): raise SystemExit(f'{name}: found {len(comps)} components, expected {len(order)}: {comps}')
@@ -37,6 +37,8 @@ def build(name, sheet, order, keep, size=1024, margin=18, opts={}):
         x0, y0, x1, y1 = max(0, c['x0'] - margin), max(0, c['y0'] - margin), min(im.shape[1], c['x1'] + margin), min(im.shape[0], c['y1'] + margin)
         m = (lab[y0:y1, x0:x1] == c['id']); rgb = bleed(im[y0:y1, x0:x1].copy(), m)
         crops.append({'view': view, 'img': rgb, 'mask': m, 'bbox': [c['x0'] - x0, c['y0'] - y0, c['x1'] - x0, c['y1'] - y0]})
+    # extra square images packed alongside (decals: a shield's face), their rect the whole image
+    for nm, img in extras: crops.append({'view': nm, 'img': img.astype(np.float32), 'mask': None, 'bbox': [0, 0, img.shape[1], img.shape[0]]})
     # shelf-pack at a common scale that fits size x size
     def pack(s):
         x = y = rowh = 0; pos = []

@@ -13,7 +13,7 @@ Four floors so far, played in order (or start at IV from the title screen):
 
 Worn trails run through the forest floors (marker posts along the main one, cairns where a side path leaves it), so you can see where the path goes.
 
-Three.js r170, no other runtime dependencies. Models, most textures and all audio are generated in code. The creatures and people that have reference sheets (the wax sentinel, Ruin Guardian, gloom hound, the villagers) are fitted to those sheets and textured by projecting the sheets' orthographic views onto them, and the Floor IV murals and carved signs are cut straight from theirs: `tools/` has the scripts (`seg.py`, `atlas.py`, `villagers.py`, `murals.py`, `profile.py`), and their output is in `src/assets/` (the sheets themselves are not in the repo). The build is one self-contained HTML file.
+Three.js r170, no other runtime dependencies. Models, most textures and all audio are generated in code. The creatures and people that have reference sheets (the wolf, the forest bandit, the wax sentinel, Ruin Guardian, gloom hound, the villagers) are fitted to those sheets and textured by projecting the sheets' orthographic views onto them, and the Floor IV murals and carved signs are cut straight from theirs: `tools/` has the scripts (`seg.py`, `atlas.py`, `villagers.py`, `bandit.py`, `murals.py`, `profile.py`, `vprofile.py`), and their output is in `src/assets/` (the sheets themselves are not in the repo). The build is one self-contained HTML file.
 
 ## Build
 

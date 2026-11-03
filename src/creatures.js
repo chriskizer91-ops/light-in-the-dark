@@ -35,7 +35,7 @@ const SEEN = { wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.
 const GLOSS = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0xffffff, dithering: true }));
 const STEEL = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0xfff0d8, dithering: true }));
 const GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-const TONE = { wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.9, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
+const TONE = { wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.42, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
 const spriteMat = (color, add) => new THREE.SpriteMaterial({ map: glowTex, color, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
 
 // ---------- visuals ----------
@@ -67,7 +67,7 @@ function buildVisual(e) {
     for (let i = 0; i < rig.eyes.n; i++) { const sp = new THREE.Sprite(e.eyeMat); e.eyeAnchor.add(sp); e.eyes.push(sp); }
   }
   if (e.type === 'wolf') e.mouth = anchorOn(e, rig, 'jaw', [0, 0.765, 0.78]);
-  if (e.type === 'bandit') e.mouth = anchorOn(e, rig, 'head', [0, 1.62, 0.13]);
+  if (e.type === 'bandit') e.mouth = anchorOn(e, rig, 'head', [0, 1.61, 0.145]);
   if (e.type === 'moth') {
     e.glow = new THREE.Sprite(spriteMat(0xff9a40, true)); e.glow.scale.set(0.8, 0.8, 1); anchorOn(e, rig, rig.glowBone, [0, -0.06, -0.22]).add(e.glow);
     e.emberAt = anchorOn(e, rig, 'abd2', [0, -0.08, -0.4]);
@@ -391,7 +391,7 @@ function animBandit(e, dt, t) {
     rx(b.shR, shX, damp(st > 0 ? 40 : 14, dt)); rx(b.elR, elX, damp(st > 0 ? 40 : 14, dt));
     b.shR.rotation.z = lerp(b.shR.rotation.z, -0.35 * c + (st > 0 ? 0.25 : 0), k);
     // buckler arm: swings when walking, comes up to block
-    rx(b.shL, e.blocking ? -1.25 : Math.sin(ph) * 0.35 * ms - 0.1, k); rx(b.elL, e.blocking ? -1.35 : -0.3, k); b.shL.rotation.z = lerp(b.shL.rotation.z, e.blocking ? 0.45 : 0, k);
+    rx(b.shL, e.blocking ? -1.25 : Math.sin(ph) * 0.35 * ms - 0.1, k); rx(b.elL, e.blocking ? -0.7 : 0, k); // the forearm is already bent under the shield at rest b.shL.rotation.z = lerp(b.shL.rotation.z, e.blocking ? 0.45 : 0, k);
     b.chest.rotation.y = lerp(b.chest.rotation.y, Math.sin(ph) * 0.08 * ms + 0.35 * c - (st > 0 ? 0.4 * st : 0), k);
     rx(b.chest, 0.05 + c * 0.1 - e.recoil * 0.35, k);
     const look = e.state === 'chase' || c > 0 ? lookAtPlayer(e) : 0;

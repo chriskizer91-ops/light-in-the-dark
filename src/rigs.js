@@ -78,17 +78,18 @@ const cone = (sides, r = 1, h = 1) => { const g = new THREE.ConeGeometry(r, h, s
 export class RigBuilder {
   constructor(def) {
     this.def = def; this.bi = {}; def.forEach((b, i) => (this.bi[b.name] = i));
-    this.slots = [0, 1, 2].map(() => ({ p: [], n: [], c: [], si: [], sw: [], pin: [] }));
+    this.slots = [0, 1, 2].map(() => ({ p: [], n: [], c: [], si: [], sw: [], pin: [], dec: [] }));
   }
   // bind: a bone name, or (x,y,z) => [bone, w, bone2, w2]. color: THREE.Color, [r,g,b], or (x,y,z,nx,ny,nz) => colour
   add(geo, bind, color, o = {}) {
     let g = geo.clone();
     if (o.flat) { if (g.index) g = g.toNonIndexed(); if (o.matrix) g.applyMatrix4(o.matrix); g.computeVertexNormals(); }
     else { g.computeVertexNormals(); if (o.matrix) g.applyMatrix4(o.matrix); if (g.index) g = g.toNonIndexed(); }
-    const P = g.attributes.position, N = g.attributes.normal, S = this.slots[o.slot || 0]; if (o.pin) this.pinned = true;
+    const P = g.attributes.position, N = g.attributes.normal, S = this.slots[o.slot || 0]; if (o.pin) this.pinned = true; if (o.decal) this.decaled = true;
     for (let i = 0; i < P.count; i++) {
       const x = P.getX(i), y = P.getY(i), z = P.getZ(i), nx = N.getX(i), ny = N.getY(i), nz = N.getZ(i);
       S.p.push(x, y, z); S.n.push(nx, ny, nz); if (o.pin) S.pin.push(o.pin.x, o.pin.y, o.pin.z); else S.pin.push(x, y, z);
+      if (o.decal) { const d = o.decal(x, y, z); S.dec.push(d[0], d[1], 1); } else S.dec.push(0, 0, 0);
       let c = typeof color === 'function' ? color(x, y, z, nx, ny, nz) : color;
       if (c.isColor) S.c.push(c.r, c.g, c.b); else S.c.push(c[0], c[1], c[2]);
       const b = typeof bind === 'function' ? bind(x, y, z) : [bind, 1];
@@ -97,7 +98,7 @@ export class RigBuilder {
     g.dispose();
   }
   build() {
-    const A = { p: [], n: [], c: [], si: [], sw: [], pin: [] }, g = new THREE.BufferGeometry(); let start = 0;
+    const A = { p: [], n: [], c: [], si: [], sw: [], pin: [], dec: [] }, g = new THREE.BufferGeometry(); let start = 0;
     this.slots.forEach((s, k) => {
       const cnt = s.p.length / 3; if (!cnt) return;
       for (const key in A) A[key] = A[key].concat(s[key]);
@@ -107,6 +108,7 @@ export class RigBuilder {
     g.setAttribute('color', new THREE.Float32BufferAttribute(A.c, 3));
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(A.si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(A.sw, 4));
     if (this.pinned) g.setAttribute('pin', new THREE.Float32BufferAttribute(A.pin, 3)); // where fur takes its colour from (projectUV)
+    if (this.decaled) g.setAttribute('decal', new THREE.Float32BufferAttribute(A.dec, 3)); // pieces with their own picture (projectUV)
     g.computeBoundingSphere(); g.userData.keep = true; g.userData.tris = start / 3;
     return g;
   }
@@ -121,12 +123,12 @@ const VIEW = { front: (x, y, z) => [x, -y], back: (x, y, z) => [-x, -y], side: (
 export function projectUV(geo, atlas, extra = [], o = {}) {
   // a tuft of fur is 'pinned' to its root: the whole blade takes the colour of the coat it grows from,
   // and its tip, standing off the body, neither samples past the silhouette nor stretches the mapping
-  const P = geo.attributes.pin || geo.attributes.position, N = geo.attributes.normal, n = P.count, names = Object.keys(atlas.views).filter((v) => VIEW[v]), ext = {};
+  const P = geo.attributes.pin || geo.attributes.position, DEC = geo.attributes.decal, N = geo.attributes.normal, n = P.count, names = Object.keys(atlas.views).filter((v) => VIEW[v]), ext = {};
   const VF = (v) => (v === 'side' && atlas.sideFlip ? VIEW.sideFlip : VIEW[v]); // some sheets draw the profile facing right
   for (const v of names) {
     const e = (ext[v] = [1e9, -1e9, 1e9, -1e9]), f = VF(v);
     const grow = (x, y, z) => { const [h, d] = f(x, y, z); e[0] = Math.min(e[0], h); e[1] = Math.max(e[1], h); e[2] = Math.min(e[2], d); e[3] = Math.max(e[3], d); };
-    for (let i = 0; i < n; i++) grow(P.getX(i), P.getY(i), P.getZ(i));
+    for (let i = 0; i < n; i++) if (!DEC || !DEC.getZ(i)) grow(P.getX(i), P.getY(i), P.getZ(i));
     for (const p of extra) grow(p[0], p[1], p[2]);
     if (o.ext && o.ext[v]) o.ext[v].forEach((val, i) => { if (val != null) e[i] = val; }); // a view drawn in another pose than the model (the wolf's tail)
   }
@@ -142,7 +144,11 @@ export function projectUV(geo, atlas, extra = [], o = {}) {
   for (let t = g0.start; t < g0.start + g0.count; t += 3) {
     a.fromBufferAttribute(geo.attributes.position, t); b.fromBufferAttribute(geo.attributes.position, t + 1); c.fromBufferAttribute(geo.attributes.position, t + 2);
     nr.subVectors(c, b).cross(_s3.subVectors(a, b)).normalize(); cen.copy(a).add(b).add(c).multiplyScalar(1 / 3);
-    const noSide = nr.x < 0 && o.mirrorSkip && o.mirrorSkip(cen.x, cen.y, cen.z);
+    if (DEC && DEC.getZ(t) > 0) { // a decal: the piece carries its own picture (a shield's face), not the views
+      for (let k = 0; k < 3; k++) { const i = t + k, u = DEC.getX(i), v = 1 - DEC.getY(i); for (const A of [uv, uvF, uvS, uvT]) { A[i * 2] = u; A[i * 2 + 1] = v; } uvW[i * 3] = 1; uvW[i * 3 + 1] = uvW[i * 3 + 2] = 0; }
+      continue;
+    }
+    const noSide = (atlas.sideFlip ? nr.x > 0 : nr.x < 0) && o.mirrorSkip && o.mirrorSkip(cen.x, cen.y, cen.z); // the side that reuses the profile mirrored
     w.front = nr.z; w.back = -nr.z; w.top = nr.y; w.side = noSide ? -9 : Math.abs(nr.x) * (o.sideBias || 1);
     let best = names[0];
     for (const v of names) if (w[v] > w[best]) best = v;
@@ -434,90 +440,113 @@ function wingIndexed(B, q, span, front, chord, spot, bone, sx, hind, P) {
 RigBuilder.prototype.addRaw = function (g, bind, colorAt, slot = 0) {
   const P = g.attributes.position, N = g.attributes.normal, S = this.slots[slot];
   for (let i = 0; i < P.count; i++) {
-    S.p.push(P.getX(i), P.getY(i), P.getZ(i)); S.pin.push(P.getX(i), P.getY(i), P.getZ(i)); S.n.push(N.getX(i), N.getY(i), N.getZ(i)); S.c.push(...colorAt(i));
+    S.p.push(P.getX(i), P.getY(i), P.getZ(i)); S.pin.push(P.getX(i), P.getY(i), P.getZ(i)); S.dec.push(0, 0, 0); S.n.push(N.getX(i), N.getY(i), N.getZ(i)); S.c.push(...colorAt(i));
     S.si.push(this.bi[bind], 0, 0, 0); S.sw.push(1, 0, 0, 0);
   }
   g.dispose();
 };
 
 // =====================================================================
-//  FOREST BANDIT — hooded, bearded, a fur mantle, a cloak with a ragged
-//  hem, a short sword and a buckler. Jointed for walking, striking,
-//  blocking and sitting by the fire.
+//  FOREST BANDIT (CR12) — hooded and bearded, a fur mantle over a laced
+//  jerkin, a ragged cloak to the calves, a round shield on the left arm and a
+//  sword hanging from the right hand. Built in the sheet's own metres (x and y
+//  as the front view; z = the side view + 0.06, so the legs stand at z = 0),
+//  then the sheet is projected on (tools/bandit.py cleans the sword and shield
+//  out of the side view; the shield's face is its own decal, from CR13).
 // =====================================================================
 function bandit(q) {
   srand(4004 + q);
-  const def = bones([['root', null, 0, 0, 0], ['hips', 'root', 0, 0.95, 0], ['spine', 'hips', 0, 1.12, 0], ['chest', 'spine', 0, 1.34, 0], ['neck', 'chest', 0, 1.52, 0], ['head', 'neck', 0, 1.62, 0.02],
-    ['shL', 'chest', 0.19, 1.45, 0], ['elL', 'shL', 0.22, 1.17, 0], ['hdL', 'elL', 0.23, 0.93, 0.02], ['shR', 'chest', -0.19, 1.45, 0], ['elR', 'shR', -0.22, 1.17, 0], ['hdR', 'elR', -0.23, 0.93, 0.02],
-    ['thL', 'hips', 0.1, 0.93, 0], ['knL', 'thL', 0.105, 0.51, 0.02], ['ftL', 'knL', 0.105, 0.09, 0], ['thR', 'hips', -0.1, 0.93, 0], ['knR', 'thR', -0.105, 0.51, 0.02], ['ftR', 'knR', -0.105, 0.09, 0],
+  const def = bones([['root', null, 0, 0, 0], ['hips', 'root', 0, 0.95, 0.05], ['spine', 'hips', 0, 1.12, 0.05], ['chest', 'spine', 0, 1.32, 0.05], ['neck', 'chest', 0, 1.5, 0.045], ['head', 'neck', 0, 1.62, 0.05],
+    ['shL', 'chest', 0.235, 1.42, 0.01], ['elL', 'shL', 0.31, 1.13, -0.01], ['hdL', 'elL', 0.32, 1.0, 0.2], ['shR', 'chest', -0.235, 1.42, 0.02], ['elR', 'shR', -0.32, 1.15, 0.01], ['hdR', 'elR', -0.395, 0.91, 0.05],
+    ['thL', 'hips', 0.1, 0.92, 0.06], ['knL', 'thL', 0.15, 0.48, 0.02], ['ftL', 'knL', 0.175, 0.1, -0.02], ['thR', 'hips', -0.1, 0.92, 0.06], ['knR', 'thR', -0.155, 0.48, 0.02], ['ftR', 'knR', -0.18, 0.1, -0.02],
     ['cloakA', 'chest', 0, 1.44, -0.14], ['cloakB', 'cloakA', 0, 1.0, -0.2]]);
   const B = new RigBuilder(def), radial = Q(q, [8, 14, 20, 26]), rings = Q(q, [6, 12, 18, 24]), d = Q(q, [1, 2, 2, 3]);
-  const cloak = C(0x1e1b17), jerkin = C(0x2a2016), linen = C(0x3a3428), trousers = C(0x221e18), boots = C(0x16110c), belt = C(0x16100a), skin = C(0x7a5a48), beard = C(0x4a3e34), fur = C(0x3a3026), steel = C(0xa8b0b8), wood = C(0x3a2a1c);
+  // fallback colours only: the body takes the sheet
+  const cloak = C(0x2a2620), jerkin = C(0x3a2a1c), linen = C(0x6a6050), trousers = C(0x2a2722), boots = C(0x2a2018), skin = C(0x7a5a48), fur = C(0x4a4032), steel = C(0xa8b0b8), wood = C(0x4a3424), iron = C(0x3a3a3c), grip = C(0x2a1c12);
   const vary = (c, k = 0.2, f = 20) => (x, y, z) => shade(c, 1 - k / 2 + k * noise(x * f, y * f, z * f));
-  const tuft = (p, dir, len, r, bind, colr, slot = 0) => B.add(cone(4, r, len), bind, colr, { flat: true, matrix: along(p, dir), slot });
-  // legs and boots
+  const wob = (amp, f = 1) => (a, t) => 1 + amp * nz3(Math.cos(a) * 2 * f, t * 9 * f, Math.sin(a) * 2 * f);
+  const tuft = (p, dir, len, r, bind, colr, slot = 0) => B.add(cone(4, r, len), bind, colr, { flat: true, matrix: along(p, dir), slot, pin: slot ? null : p });
+  const lr = Math.max(6, radial - 4);
+  // legs: the thighs carried a little forward of the boots; boots strapped at the shin, toes turned out
   for (const sx of [1, -1]) {
-    const T_ = sx > 0 ? 'L' : 'R';
-    B.add(loft([{ p: [sx * 0.1, 0.96, 0], r: [0.088, 0.092] }, { p: [sx * 0.105, 0.72, 0.01], r: [0.07, 0.075] }, { p: [sx * 0.105, 0.52, 0.02], r: [0.055, 0.06] }], { radial, rings, ref: [0, 0, 1] }), 'th' + T_, vary(trousers));
-    B.add(loft([{ p: [sx * 0.105, 0.53, 0.02], r: [0.055, 0.06] }, { p: [sx * 0.105, 0.36, 0.0], r: [0.05, 0.055] }, { p: [sx * 0.105, 0.11, 0.0], r: [0.044, 0.046] }], { radial, rings, ref: [0, 0, 1] }), 'kn' + T_, (x, y, z) => (y < 0.42 ? vary(boots, 0.15)(x, y, z) : vary(trousers)(x, y, z)));
-    B.add(new THREE.TorusGeometry(0.058, 0.014, 5, radial), 'kn' + T_, vary(boots, 0.1), { matrix: M(sx * 0.105, 0.42, 0.0, Math.PI / 2, 0, 0) });
-    B.add(blob(d), 'ft' + T_, vary(boots, 0.15), { matrix: M(sx * 0.105, 0.05, 0.05, 0, 0, 0, 0.055, 0.045, 0.12) });
+    const T_ = sx > 0 ? 'L' : 'R', kx = sx * (sx > 0 ? 0.15 : 0.155), ax = sx * (sx > 0 ? 0.175 : 0.18);
+    B.add(loft([{ p: [sx * 0.1, 0.96, 0.07], r: [0.09, 0.095] }, { p: [sx * 0.125, 0.72, 0.075], r: [0.08, 0.088] }, { p: [sx * 0.14, 0.57, 0.067], r: [0.072, 0.085] }, { p: [kx, 0.49, 0.03], r: [0.068, 0.068] }], { radial: lr, rings, ref: [0, 0, 1], shape: wob(0.02) }), 'th' + T_, vary(trousers)); // baggy at the front of the thigh
+    B.add(loft([{ p: [kx, 0.51, 0.025], r: [0.066, 0.066] }, { p: [sx * 0.168, 0.4, -0.01], r: [0.066, 0.078] }, { p: [ax, 0.2, -0.025], r: [0.06, 0.074] }, { p: [ax, 0.08, -0.02], r: [0.056, 0.068] }], { radial: lr, rings, ref: [0, 0, 1], shape: wob(0.02) }), 'kn' + T_, (x, y, z) => (y < 0.43 ? vary(boots, 0.15)(x, y, z) : vary(trousers)(x, y, z)));
+    for (const y of [0.4, 0.34, 0.16]) B.add(new THREE.TorusGeometry(1, 0.11, 4, lr), 'kn' + T_, vary(grip, 0.1), { matrix: M(sx * 0.17, y, -0.022, Math.PI / 2, 0, 0, 0.066, 0.078, 0.066) }); // the straps
+    const toe = -sx * 0.26; // the foot: heel at z -0.1, toe at +0.21, turned out
+    B.add(blob(d, (x, y, z) => [x * (z > 0.3 ? 0.9 : 1), y < -0.2 ? -0.2 - (-0.2 - y) * 0.25 : y * (z > 0.2 ? 0.75 : 1), z]), 'ft' + T_, vary(boots, 0.15), { matrix: M(ax + sx * 0.02, 0.058, 0.055, 0, toe, 0, 0.064, 0.06, 0.155) }); // a flat sole
   }
-  // hips, belt, pouches, a sheathed knife
-  B.add(blob(d), 'hips', vary(trousers), { matrix: M(0, 0.95, 0, 0, 0, 0, 0.18, 0.12, 0.13) });
-  B.add(new THREE.TorusGeometry(0.17, 0.022, 5, radial * 2), 'hips', belt, { matrix: M(0, 1.0, 0.005, Math.PI / 2, 0, 0, 1, 0.78, 1) });
-  B.add(new THREE.BoxGeometry(0.05, 0.04, 0.012), 'hips', steel, { slot: 2, matrix: M(0, 1.0, 0.142) });
-  for (const [x, z] of [[0.15, 0.06], [-0.14, 0.08], [0.17, -0.06]]) B.add(new THREE.BoxGeometry(0.07, 0.085, 0.045), 'hips', vary(C(0x4a3624), 0.25), { matrix: M(x, 0.95, z, 0, Math.atan2(x, z), 0) });
-  B.add(new THREE.BoxGeometry(0.03, 0.2, 0.02), 'hips', belt, { matrix: M(-0.16, 0.9, -0.06, 0, 0, 0.2) });
-  // torso: a laced leather jerkin over linen
-  const tor = [{ p: [0, 0.96, 0], r: [0.165, 0.12] }, { p: [0, 1.12, 0.005], r: [0.155, 0.115] }, { p: [0, 1.32, 0.01], r: [0.2, 0.135] }, { p: [0, 1.46, 0], r: [0.18, 0.12] }, { p: [0, 1.53, 0], r: [0.075, 0.068] }];
-  B.add(loft(tor, { radial: radial + 4, rings: rings + 2, ref: [0, 0, 1] }), (x, y, z) => along1([[1.0, 'hips'], [1.12, 'spine'], [1.34, 'chest']])(y),
-    (x, y, z) => { if (y > 1.47) return vary(linen)(x, y, z); if (z > 0.08 && Math.abs(x) < 0.012) return shade(belt, 0.8); if (z > 0.08 && Math.abs(x) < 0.04 && Math.abs(((y * 30) % 1) - 0.5) < 0.12) return shade(linen, 1.1); return vary(jerkin, 0.3, 14)(x, y, z); });
-  // fur mantle over the shoulders
-  for (let i = 0, n = Q(q, [10, 26, 48, 80]); i < n; i++) {
-    const a = rr(-0.3, Math.PI + 0.3), x = Math.cos(a) * rr(0.13, 0.22), z = Math.sin(a) * -0.13 + rr(-0.02, 0.06) * (Math.sin(a) < 0.3 ? 1 : 0);
-    tuft(new V3(x, rr(1.44, 1.52), Math.abs(z) < 0.02 ? -0.1 : z), new V3(x * 3, -1.2, z < 0 ? -0.6 : 0.3).normalize(), rr(0.06, 0.1), 0.028, 'chest', vary(fur, 0.4, 30));
-  }
-  // arms
-  for (const sx of [1, -1]) {
-    const S = sx > 0 ? 'L' : 'R';
-    B.add(loft([{ p: [sx * 0.19, 1.47, 0], r: [0.06, 0.06] }, { p: [sx * 0.21, 1.3, 0], r: [0.052, 0.052] }, { p: [sx * 0.22, 1.17, 0], r: [0.046, 0.046] }], { radial, rings, ref: [0, 0, 1] }), 'sh' + S, vary(linen));
-    B.add(blob(d), 'sh' + S, vary(jerkin, 0.3), { matrix: M(sx * 0.2, 1.46, 0, 0, 0, sx * 0.4, 0.085, 0.06, 0.09) });
-    B.add(loft([{ p: [sx * 0.22, 1.18, 0], r: [0.046, 0.046] }, { p: [sx * 0.225, 1.05, 0.01], r: [0.043, 0.043] }, { p: [sx * 0.23, 0.95, 0.02], r: [0.036, 0.036] }], { radial, rings, ref: [0, 0, 1] }), 'el' + S, (x, y, z) => (y < 1.1 ? vary(belt, 0.2)(x, y, z) : vary(linen)(x, y, z)));
-    B.add(blob(d), 'hd' + S, vary(belt, 0.15), { matrix: M(sx * 0.232, 0.89, 0.035, 0, 0, 0, 0.038, 0.05, 0.034) });
-    B.add(blob(1), 'hd' + S, vary(belt, 0.15), { matrix: M(sx * 0.21, 0.9, 0.06, 0, 0, 0, 0.014, 0.025, 0.014) });
-  }
-  // buckler on the left forearm
-  B.add(new THREE.CylinderGeometry(0.17, 0.17, 0.025, Q(q, [10, 18, 26, 34])), 'elL', vary(wood, 0.35, 30), { matrix: M(0.29, 1.06, 0.02, 0, 0, Math.PI / 2) });
-  B.add(new THREE.TorusGeometry(0.17, 0.012, 5, Q(q, [10, 18, 26, 34])), 'elL', steel, { slot: 2, matrix: M(0.302, 1.06, 0.02, 0, Math.PI / 2, 0) });
-  B.add(blob(d), 'elL', steel, { slot: 2, matrix: M(0.305, 1.06, 0.02, 0, 0, 0, 0.022, 0.05, 0.05) });
-  // the sword in the right hand, blade forward
-  const sl = 0.68, hx = -0.232, hy = 0.89, hz = 0.035;
-  B.add(new THREE.BoxGeometry(0.012, 0.042, sl, 1, 1, Q(q, [2, 6, 10, 14])), 'hdR', (x, y, z) => (Math.abs(y - hy) < 0.007 ? shade(steel, 0.6) : shade(steel, 1.0)), { slot: 2, matrix: M(hx, hy, hz + 0.09 + sl / 2) });
-  B.add(cone(4, 0.03, 0.08), 'hdR', steel, { slot: 2, matrix: along(new V3(hx, hy, hz + 0.09 + sl), new V3(0, 0, 1), 0.35, 1, 1) });
-  B.add(new THREE.BoxGeometry(0.03, 0.16, 0.024), 'hdR', vary(C(0x5a4a30), 0.2), { slot: 2, matrix: M(hx, hy, hz + 0.075) });
-  B.add(new THREE.CylinderGeometry(0.016, 0.016, 0.12, 6), 'hdR', belt, { matrix: M(hx, hy, hz, Math.PI / 2, 0, 0) });
-  B.add(blob(1), 'hdR', steel, { slot: 2, matrix: M(hx, hy, hz - 0.07, 0, 0, 0, 0.022, 0.022, 0.022) });
-  // head: a face half in shadow, a beard, eyes with no shine in them
-  B.add(blob(d), 'head', vary(skin, 0.15), { matrix: M(0, 1.66, 0.04, 0, 0, 0, 0.098, 0.12, 0.108) });
-  B.add(blob(1), 'head', vary(skin, 0.1), { matrix: M(0, 1.66, 0.145, -0.2, 0, 0, 0.018, 0.03, 0.022) });
-  for (const sx of [-1, 1]) B.add(blob(1), 'head', C(0x0a0806), { slot: 1, matrix: M(sx * 0.037, 1.685, 0.123, 0, 0, 0, 0.014, 0.009, 0.008) });
-  for (let i = 0, n = Q(q, [6, 16, 28, 44]); i < n; i++) { const a = rr(-1.2, 1.2), p = new V3(Math.sin(a) * 0.085, rr(1.56, 1.63), 0.05 + Math.cos(a) * 0.085); tuft(p, new V3(Math.sin(a) * 0.3, -1, 0.35).normalize(), rr(0.05, 0.09), 0.018, 'head', vary(beard, 0.3, 40)); }
-  // hood: a shell with the face pushed out of its opening, peaked at the back
-  B.add(blob(d, (x, y, z) => { const open = z > 0.25 && y < 0.55 && Math.abs(x) < 0.75; return [x, y, open ? 0.25 + (z - 0.25) * 0.15 : z]; }), 'head', vary(cloak, 0.25), { matrix: M(0, 1.68, -0.005, 0, 0, 0, 0.14, 0.165, 0.15) });
-  B.add(cone(Q(q, [4, 6, 8, 10]), 0.06, 0.16), 'head', vary(cloak), { matrix: along(new V3(0, 1.79, -0.1), new V3(0, 0.4, -1).normalize(), 1, 1, 0.6) });
-  // cloak: an open half-cylinder from the shoulders, ragged at the hem
-  {
-    const su = Q(q, [8, 16, 24, 32]), sv = Q(q, [6, 12, 18, 24]), pos = [], idx = [];
-    for (let i = 0; i <= su; i++) for (let j = 0; j <= sv; j++) {
-      const u = i / su, v = j / sv, a = lerp(-1.9, 1.9, u), y = lerp(1.48, 0.42, v), r = lerp(0.2, 0.34, v), rag = v > 0.85 ? (noise(u * 30, 1, 2) - 0.5) * 0.18 * (v - 0.85) / 0.15 : 0;
-      pos.push(Math.sin(a) * r, y + rag, -Math.cos(a) * r * 0.85 - 0.02 + 0.03 * Math.sin(u * 40) * v);
+  // jerkin and the skirt of it, laced at the front, belted, pouches on the belt
+  const tor = [{ p: [0, 0.78, 0.055], r: [0.215, 0.135] }, { p: [0, 0.88, 0.06], r: [0.2, 0.125] }, { p: [0, 0.98, 0.06], r: [0.18, 0.115] }, { p: [0, 1.08, 0.06], r: [0.175, 0.11] },
+    { p: [0, 1.2, 0.055], r: [0.18, 0.115] }, { p: [0, 1.32, 0.05], r: [0.195, 0.12] }, { p: [0, 1.42, 0.04], r: [0.2, 0.11] }, { p: [0, 1.5, 0.04], r: [0.1, 0.085] }];
+  B.add(loft(tor, { radial: radial + 6, rings: rings + 4, ref: [0, 0, 1], caps: false, shape: (a, t) => (t < 0.15 ? 1 + 0.06 * (0.15 - t) / 0.15 * nz3(a * 4, t * 30, 2) : wob(0.015)(a, t)) }), (x, y, z) => along1([[1.0, 'hips'], [1.12, 'spine'], [1.34, 'chest']])(y), vary(jerkin, 0.3, 14));
+  B.add(new THREE.TorusGeometry(1, 0.11, 5, radial * 2), 'hips', vary(grip, 0.15), { matrix: M(0, 1.06, 0.06, Math.PI / 2, 0, 0, 0.188, 0.122, 0.188) }); // belt
+  for (const [x, z, w] of [[-0.13, 0.165, 0.1], [0.13, 0.165, 0.085], [0.2, 0.05, 0.07]]) B.add(new THREE.BoxGeometry(w, 0.1, 0.05), 'hips', vary(jerkin, 0.25), { matrix: M(x, 1.0, z, 0, Math.atan2(x, 0.6), 0) });
+  // scarf, the face, a short beard
+  B.add(loft([{ p: [0, 1.46, 0.05], r: [0.1, 0.095] }, { p: [0, 1.53, 0.06], r: [0.085, 0.085] }, { p: [0, 1.58, 0.06], r: [0.07, 0.07] }], { radial, rings: 5, ref: [0, 0, 1] }), (x, y) => along1([[1.5, 'neck'], [1.58, 'head']])(y), vary(linen, 0.2));
+  B.add(blob(d, (x, y, z) => [x * (1 - 0.15 * Math.max(0, z)), y, z]), 'head', vary(skin, 0.15), { matrix: M(0, 1.665, 0.05, 0, 0, 0, 0.082, 0.115, 0.098) });
+  B.add(blob(1), 'head', vary(skin, 0.1), { matrix: M(0, 1.655, 0.148, -0.25, 0, 0, 0.016, 0.03, 0.02) }); // nose
+  for (let i = 0, n = Q(q, [4, 12, 22, 34]); i < n; i++) { const a = rr(-1.1, 1.1), p = new V3(Math.sin(a) * 0.07, rr(1.56, 1.62), 0.05 + Math.cos(a) * 0.085); tuft(p, new V3(Math.sin(a) * 0.3, -1, 0.3).normalize(), rr(0.035, 0.06), 0.014, 'head', vary(C(0x4a3e34), 0.3, 40)); }
+  // hood: a shell around the head, its opening pushed back off the face, a peak at the back
+  B.add(blob(d + 1, (x, y, z) => { const open = z > 0.3 && y < 0.5 && Math.abs(x) < 0.7, peak = Math.max(0, y - 0.2) * Math.max(0, -z - 0.1) * 0.5; return [x * (1 - 0.18 * Math.max(0, y)), y + peak, open ? 0.3 + (z - 0.3) * 0.12 : z - peak * 0.4]; }), 'head', vary(cloak, 0.25), { matrix: M(0, 1.7, 0.035, -0.1, 0, 0, 0.138, 0.158, 0.15) });
+  // fur mantle: a shaggy cape over the shoulders and back, open at the chest, its edge hanging in tufts
+  const shell = (prof, A1, rows, cols, top, bot, ragK, bind, col) => {
+    const at = (y) => { let i = 0; while (i < prof.length - 2 && y < prof[i + 1][0]) i++; const [y0, ...a] = prof[i], [y1, ...b] = prof[i + 1], k = clamp((y - y0) / (y1 - y0), 0, 1); return a.map((v, j) => lerp(v, b[j], k)); };
+    const pos = [], idx = [];
+    for (let i = 0; i <= cols; i++) for (let j = 0; j <= rows; j++) {
+      const u = i / cols, v = j / rows, a = lerp(-A1, A1, u), y0 = lerp(top, bot(a), v), rag = v > 0.8 ? ragK(u) * (v - 0.8) / 0.2 : 0, [rx, rz, cz] = at(y0);
+      pos.push(Math.sin(a) * rx, y0 + rag, cz - Math.cos(a) * rz);
     }
-    for (let i = 0; i < su; i++) for (let j = 0; j < sv; j++) { const a = i * (sv + 1) + j, b = a + 1, c = a + sv + 1, dd = c + 1; idx.push(a, b, c, b, dd, c); }
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) { const a = i * (rows + 1) + j, b = a + 1, c = a + rows + 1, dd = c + 1; idx.push(a, c, b, b, c, dd); } // outward (projectUV picks views by facing)
+    const g = new THREE.BufferGeometry(); g.setIndex(idx); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    B.add(g, bind, col); return at;
+  };
+  const mantP = [[1.6, 0.13, 0.12, 0.03], [1.52, 0.255, 0.18, 0.005], [1.42, 0.31, 0.195, -0.01], [1.25, 0.32, 0.2, -0.02]];
+  const mAt = shell(mantP, 2.5, Q(q, [4, 6, 9, 12]), Q(q, [12, 20, 28, 36]), 1.6, (a) => lerp(1.22, 1.33, Math.pow(Math.abs(a) / 2.5, 2)), (u) => -(noise(u * 41, 3, 1) - 0.3) * 0.08, 'chest', vary(fur, 0.4, 30));
+  for (let i = 0, n = Q(q, [8, 20, 34, 50]); i < n; i++) {
+    const a = rr(-2.4, 2.4), y = rr(1.27, 1.4), [rx, rz, cz] = mAt(y), p = new V3(Math.sin(a) * rx * 0.97, y, cz - Math.cos(a) * rz * 0.97), out = new V3(Math.sin(a) / rx, 0, -Math.cos(a) / rz).normalize();
+    tuft(p, out.multiplyScalar(0.25).add(new V3(0, -1, 0)).normalize(), rr(0.04, 0.075), 0.016, 'chest', vary(fur, 0.4, 30));
+  }
+  // arms: the sword arm hanging, the shield arm bent forward under its shield
+  for (const sx of [1, -1]) {
+    const S = sx > 0 ? 'L' : 'R', sh = def.find((b) => b.name === 'sh' + S).pos, el = def.find((b) => b.name === 'el' + S).pos, hd = def.find((b) => b.name === 'hd' + S).pos;
+    B.add(loft([{ p: [sh[0] * 0.9, sh[1] + 0.02, sh[2]], r: [0.062, 0.062] }, { p: [lerp(sh[0], el[0], 0.5), lerp(sh[1], el[1], 0.5), lerp(sh[2], el[2], 0.5)], r: [0.054, 0.056] }, { p: el, r: [0.05, 0.05] }], { radial: lr, rings, ref: [0, 0, 1] }), 'sh' + S, vary(linen));
+    B.add(loft([{ p: el, r: [0.05, 0.05] }, { p: [lerp(el[0], hd[0], 0.5), lerp(el[1], hd[1], 0.5), lerp(el[2], hd[2], 0.5)], r: [0.048, 0.048] }, { p: [lerp(el[0], hd[0], 0.85), lerp(el[1], hd[1], 0.85), lerp(el[2], hd[2], 0.85)], r: [0.04, 0.04] }], { radial: lr, rings, ref: sx > 0 ? [0, 1, 0] : [0, 0, 1] }), 'el' + S, vary(grip, 0.2));
+    B.add(blob(d), 'hd' + S, vary(skin, 0.15), { matrix: M(hd[0], hd[1], hd[2], 0, 0, 0, 0.036, 0.05, 0.036) });
+  }
+  // cloak: an open shell from the shoulders, round behind and down the sides, ragged and holed at the hem
+  {
+    const su = Q(q, [10, 18, 26, 34]), sv = Q(q, [8, 14, 20, 26]), pos = [], idx = [], A0 = 1.75;
+    const prof = [[1.47, 0.2, 0.12, -0.05], [1.4, 0.29, 0.13, -0.085], [1.2, 0.325, 0.135, -0.075], [0.9, 0.34, 0.14, -0.08], [0.6, 0.345, 0.145, -0.09], [0.3, 0.345, 0.15, -0.095]];
+    const at = (y) => { let i = 0; while (i < prof.length - 2 && y < prof[i + 1][0]) i++; const [y0, ...a] = prof[i], [y1, ...b] = prof[i + 1], k = clamp((y - y0) / (y1 - y0), 0, 1); return a.map((v, j) => lerp(v, b[j], k)); };
+    for (let i = 0; i <= su; i++) for (let j = 0; j <= sv; j++) {
+      const u = i / su, v = j / sv, a = lerp(-A0, A0, u), hem = lerp(0.345, 0.48, Math.pow(Math.abs(a) / A0, 1.5)), y0 = lerp(1.47, hem, v);
+      const rag = v > 0.82 ? -(noise(u * 37, 1, 2) - 0.3) * 0.12 * (v - 0.82) / 0.18 : 0, y = y0 + rag, [rx, rz, cz] = at(y0);
+      pos.push(Math.sin(a) * rx, y, cz - Math.cos(a) * rz + 0.012 * Math.sin(u * 47) * v);
+    }
+    for (let i = 0; i < su; i++) for (let j = 0; j < sv; j++) { const a = i * (sv + 1) + j, b = a + 1, c = a + sv + 1, dd = c + 1; idx.push(a, c, b, b, c, dd); } // outward
     const g = new THREE.BufferGeometry(); g.setIndex(idx); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     B.add(g, (x, y, z) => along1([[1.0, 'cloakB'], [1.44, 'cloakA']])(y), vary(cloak, 0.3, 16));
   }
-  return { def, geo: B.build(), eyes: null, height: 1.8, roughness: 0.85, side: THREE.DoubleSide, accent: 'steel', bladeBone: 'hdR', bladePos: [hx, hy, hz + 0.45] };
+  // the shield, strapped to the left forearm: its face is a picture of its own (CR13, decal)
+  const SH = ATLAS.bandit && ATLAS.bandit.views.shield, sc = new V3(0.39, 0.93, 0.08), sn = new V3(0.95, 0, 0.31).normalize(), sR = 0.215;
+  const e1 = new V3(0, 1, 0).cross(sn).normalize(), e2 = new V3(0, 1, 0); // e1: to the right, seen from outside
+  const decal = SH ? (x, y, z) => { _P.set(x, y, z).sub(sc); const u = _P.dot(e1) / sR, v = _P.dot(e2) / sR; return [lerp(SH[0], SH[2], 0.5 + 0.5 * u * 0.97), lerp(SH[1], SH[3], 0.5 - 0.5 * v * 0.97)]; } : null;
+  const onShield = (g, depth) => { const m = new THREE.Matrix4().makeBasis(e1, e2, sn); m.setPosition(sc.clone().addScaledVector(sn, depth)); return m; };
+  const disc = new THREE.CylinderGeometry(sR, sR, 0.026, Q(q, [12, 20, 28, 36]), 1); disc.rotateX(Math.PI / 2);
+  B.add(disc, 'elL', vary(wood, 0.35, 30), { matrix: onShield(disc, 0), decal });
+  B.add(blob(d, (x, y, z) => [x, y, z < 0 ? z * 0.2 : z]), 'elL', iron, { matrix: onShield(null, 0.013).multiply(new THREE.Matrix4().makeScale(0.055, 0.055, 0.035)), decal });   // the boss
+  B.add(new THREE.TorusGeometry(sR, 0.011, 4, Q(q, [12, 20, 28, 36])), 'elL', iron, { matrix: onShield(null, 0.008), decal });                                                         // the rim
+  // the sword in the right hand, hanging point-down and forward as drawn: a guard lifts it at the player
+  const sd = new V3(0.086, -0.83, 0.54).normalize(), guard = new V3(-0.395, 0.86, 0.1), sl = 0.52, mid = guard.clone().addScaledVector(sd, sl / 2);
+  B.add(new THREE.BoxGeometry(0.012, sl, 0.04, 1, Q(q, [2, 6, 10, 14]), 1), 'hdR', (x, y, z, nx) => shade(steel, Math.abs(nx) > 0.7 ? 1 : 0.7), { slot: 2, matrix: along(mid, sd) });
+  B.add(cone(4, 0.02, 0.05), 'hdR', steel, { slot: 2, matrix: along(guard.clone().addScaledVector(sd, sl), sd, 0.3, 1, 1) });
+  B.add(new THREE.BoxGeometry(0.026, 0.022, 0.15), 'hdR', vary(C(0x6a6050), 0.2), { slot: 2, matrix: along(guard, sd) }); // crossguard, across the blade
+  B.add(new THREE.CylinderGeometry(0.016, 0.016, 0.12, 6), 'hdR', grip, { slot: 2, matrix: along(guard.clone().addScaledVector(sd, -0.065), sd) });
+  B.add(blob(1), 'hdR', steel, { slot: 2, matrix: M(...guard.clone().addScaledVector(sd, -0.135).toArray(), 0, 0, 0, 0.022, 0.022, 0.022) }); // pommel
+  const bladePos = guard.clone().addScaledVector(sd, 0.3).toArray();
+  return { def, geo: B.build(), eyes: null, height: 1.86, roughness: 0.88, side: THREE.DoubleSide, accent: 'steel', bladeBone: 'hdR', bladePos,
+    uvOpts: { ext: ATLAS.bandit && ATLAS.bandit.ext } };
 }
 
 // =====================================================================
@@ -824,13 +853,13 @@ function figure(q, who) {
 
 const BUILDERS = { wolf, leech, moth, bandit, sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound, maren: (q) => figure(q, 'maren'), sev: (q) => figure(q, 'sev'), lyn: (q) => figure(q, 'lyn'), ged: (q) => figure(q, 'ged'), girl: (q) => figure(q, 'girl') };
 const cache = {};
-export const TEXTURED = new Set(['wolf', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl']); // bandit, leech: atlases are built (tools/atlas.py), bodies not yet refit
+export const TEXTURED = new Set(['wolf', 'bandit', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl']); // leech: its atlas is built (tools/atlas.py), body not yet refit
 export function getRig(type, q) {
   const k = type + q;
   if (!cache[k]) {
     const r = (cache[k] = BUILDERS[type](q));
     if (TEXTURED.has(type) && ATLAS[type]) { projectUV(r.geo, ATLAS[type], r.uvExtra || [], r.uvOpts || {}); r.atlas = ATLAS[type]; r.atlasName = type; }
-    if (r.geo.attributes.pin) r.geo.deleteAttribute('pin'); // only projectUV reads it
+    for (const a of ['pin', 'decal']) if (r.geo.attributes[a]) r.geo.deleteAttribute(a); // only projectUV reads them
   }
   return cache[k];
 }
