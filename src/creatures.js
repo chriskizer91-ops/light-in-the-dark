@@ -2,9 +2,9 @@ import { THREE, glowTex, flameTex, psx, rr, mr, clamp, lerp, smooth, damp, wrapA
 import { LV, TILE, toTile, isWalkable, lineOfSight, findPath, moveWithCollisions } from './level.js';
 import { lantern, beamAt, glint, lanternLevel, MODES, NEAR_R } from './lantern.js';
 import { W, litTest, worldLevel, DETAIL, seenPoint } from './world3d.js';
-import { getRig, makeSkeleton, LEECH_N } from './rigs.js';
+import { getRig, makeSkeleton, LEECH_N, rigMaterial } from './rigs.js';
 import { burst, ember, puff, dust } from './fx.js';
-import { G, P, H, BAL } from './state.js';
+import { G, P, H, BAL, DF } from './state.js';
 import { sfx } from './audio.js';
 
 // =====================================================================
@@ -35,7 +35,7 @@ const SEEN = { wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.
 const GLOSS = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0xffffff, dithering: true }));
 const STEEL = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0xfff0d8, dithering: true }));
 const GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-const TONE = { wolf: 0.75, leech: 0.7, moth: 1, bandit: 0.9, sentinel: 0.1, guardian: 0.12, hound: 0.85 };
+const TONE = { wolf: 0.75, leech: 0.7, moth: 1, bandit: 0.9, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
 const spriteMat = (color, add) => new THREE.SpriteMaterial({ map: glowTex, color, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
 
 // ---------- visuals ----------
@@ -48,13 +48,13 @@ function buildVisual(e) {
   const q = DETAIL[settings.detail].q, rig = getRig(e.type, q), grp = new THREE.Group();
   const { bones, by, skeleton } = makeSkeleton(rig.def);
   grp.add(bones[0]); // bones live under the group, not the mesh: hiding the body keeps the eyes
-  const body = psx(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: rig.roughness, metalness: 0, side: rig.side, dithering: true, emissive: 0x000000 }));
+  const body = rigMaterial(rig, psx);
   body.color.setScalar(TONE[e.type]); // creatures sit in the same dark world as the trees: keep their albedo low so a close beam doesn't wash them out
   const accent = STONE(e) ? new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }) : null; // fissures that blaze when it is cracked
   const mesh = new THREE.SkinnedMesh(rig.geo, [body, GLOSS, accent || (rig.accent === 'steel' ? STEEL : GLOW)]);
   mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true; grp.add(mesh);
   grp.updateMatrixWorld(true); mesh.bind(skeleton);
-  Object.assign(e, { grp, mesh, mat: body, b: by, tris: rig.geo.userData.tris, eyes: [], eyeMat: null, glow: null, blade: null, bladeMat: null, mouth: null, accentMat: accent, flames: [], flameMat: null });
+  Object.assign(e, { grp, mesh, mat: body, glowU: body.userData.glow || null, b: by, tris: rig.geo.userData.tris, eyes: [], eyeMat: null, glow: null, blade: null, bladeMat: null, mouth: null, accentMat: accent, flames: [], flameMat: null });
   grp.scale.setScalar(DEFS[e.type].scale || 1);
   if (rig.candles) {
     e.flameMat = new THREE.SpriteMaterial({ map: flameTex, color: 0xffc070, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0 });
@@ -82,7 +82,7 @@ export function refreshCreatureDetail() { for (const e of CR.list) buildVisual(e
 function spawn(s) {
   const def = DEFS[s.type];
   const e = {
-    type: s.type, def, x: s.x, z: s.z, r: def.r, hp: def.hp, maxHp: def.hp, speed: def.speed, state: s.camp ? 'camp' : STONE(s) ? 'dormant' : 'wander', stateTime: rr(1, 3),
+    type: s.type, def, x: s.x, z: s.z, r: def.r, hp: def.hp * DF.hp, maxHp: def.hp * DF.hp, speed: def.speed, state: s.camp ? 'camp' : STONE(s) ? 'dormant' : 'wander', stateTime: rr(1, 3),
     path: null, pathTimer: rr(0.2, 0.8), lastKnown: { x: s.x, z: s.z }, facing: s.face !== undefined ? s.face : rr(0, TAU), exposed: 0, exposeFlash: 0,
     guardian: !!s.guardian, home: { x: s.x, z: s.z }, wakeK: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, hardHit: 0, stuckT: 0, noCircle: 0,
     windup: 0, windupMax: 0, recover: 0, recoverAfter: 0, attackKind: '', attackAngle: 0, lungeTime: 0, lungeAfter: 0, lungeSpeed: 0, lungeSpeedAfter: 0,
@@ -97,14 +97,23 @@ function spawn(s) {
 }
 export function spawnCreatures() {
   for (const e of CR.list) disposeVisual(e); for (const e of CR.dead) if (e.grp) disposeVisual(e);
-  CR.dead = []; CR.list = LV.spawns.map(spawn);
+  // difficulty thins the hunters out or sends more (an extra of the same kind beside some of them)
+  const list = [];
+  LV.spawns.forEach((q, i) => {
+    if (DF.count < 1 && !q.camp && !q.guardian && ((i * 0.618) % 1) > DF.count) return;
+    list.push(q);
+    if (DF.count > 1 && !q.camp && !q.guardian && q.type !== 'sentinel' && ((i * 0.618) % 1) < DF.count - 1) {
+      for (const [ox, oz] of [[1.6, 0], [-1.6, 0], [0, 1.6], [0, -1.6]]) { const x = q.x + ox, z = q.z + oz; if (isWalkable(toTile(x), toTile(z))) { list.push({ type: q.type, x, z, face: q.face }); break; } }
+    }
+  });
+  CR.dead = []; CR.list = list.map(spawn);
 }
 export function addCreature(type, x, z) { const e = spawn({ type, x, z }); CR.list.push(e); return e; }
 
 // ---------- light at a creature (lantern needs line of sight; braziers and flares don't care) ----------
 function lightAtE(e) { const y = e.type === 'moth' ? e.fy : 0.6; return Math.max(e.los ? lanternLevel(e.x, y, e.z) : 0, worldLevel(e.x, e.z)); }
 function lightAtP(x, z) { return Math.max(lanternLevel(x, 0.5, z), worldLevel(x, z)); }
-function enemySeesPlayer(e) { const st = MODES[lantern.mode].stealth * (lantern.k < 0.2 ? 0.6 : 1); return e.dist <= e.def.sense * st && e.los; }
+function enemySeesPlayer(e) { const st = MODES[lantern.mode].stealth * (lantern.k < 0.2 ? 0.6 : 1); return e.dist <= e.def.sense * st * DF.sense && e.los; }
 function pickDarkNeighbor(e) {
   const tx = toTile(e.x), ty = toTile(e.z); let best = null, bs = -1e9;
   for (let y = -1; y <= 1; y++) for (let x = -1; x <= 1; x++) {
@@ -134,7 +143,7 @@ export function exposeEnemy(e, duration = 1.15) {
   if (gained) { sfx.expose(e); burst(e.x, chestY(e), e.z, STONE(e) ? 24 : 10, [1, 0.8, 0.4], STONE(e) ? 2.4 : 1.6, 0.5, -1); if (e.bodyVis) H.say(e.type === 'leech' ? 'It hates the bright edge.' : STONE(e) ? 'Cracked open. Now.' : 'Now. Strike.'); }
 }
 function beginWindup(e, kind, angle) {
-  const d = e.def; e.attackKind = kind; e.attackAngle = angle; e.windup = d.windup; e.windupMax = d.windup;
+  const d = e.def; e.attackKind = kind; e.attackAngle = angle; e.windup = d.windup * DF.windup; e.windupMax = e.windup;
   e.recoverAfter = d.recover; e.lungeAfter = d.lunge; e.lungeSpeedAfter = d.lungeSpeed; e.hitOnce = false; e.attackCd = d.windup + d.recover + 0.18;
   sfx.windup(e);
 }
@@ -410,7 +419,7 @@ function animSentinel(e, dt, t) {
   const swing = Math.sin(ph) * 0.3 * ms, up = -2.9;
   const shL = st > 0 ? lerp(-0.6, up, Math.pow(st, 6)) : lerp(swing - 0.08 * (1 - w), up, c), shR = st > 0 ? lerp(-0.6, up, Math.pow(st, 6)) : lerp(-swing - 0.08 * (1 - w), up, c);
   const fast = damp(st > 0 || c > 0 ? 26 : 9, dt);
-  rx(b.shL, shL, fast); rx(b.shR, shR, fast); rx(b.elL, -0.2 - c * 0.5, fast); rx(b.elR, -0.2 - c * 0.5, fast);
+  rx(b.shL, shL, fast); rx(b.shR, shR, fast); rx(b.elL, -0.05 - c * 0.5, fast); rx(b.elR, -0.05 - c * 0.5, fast);
   b.shL.rotation.z = lerp(b.shL.rotation.z, 0.12 - c * 0.25, k); b.shR.rotation.z = lerp(b.shR.rotation.z, -0.12 + c * 0.25, k);
 }
 const ANIM = { wolf: animWolf, leech: animLeech, moth: animMoth, bandit: animBandit, sentinel: animSentinel, guardian: animSentinel, hound: animWolf };
@@ -420,6 +429,7 @@ function animDeath(e, dt) {
     b.root.scale.y = 1 - k * 0.72; b.root.rotation.x = k * 0.5; b.root.position.y = -k * 0.08;
     rx(b.shL, -0.4, 0.1); rx(b.shR, -0.4, 0.1); rx(b.neck, 0.8, 0.1);
     if (e.accentMat) e.accentMat.color.setScalar(Math.max(0, 1 - e.dying * 0.6));
+    if (e.glowU) e.glowU.value = Math.max(0, 1 - e.dying * 0.6);
   } else if (e.type === 'wolf' || e.type === 'hound') {
     b.root.rotation.z = k * 1.45 * e.dieSide; b.root.position.y = -k * 0.05;
     for (const n of ['FL', 'FR', 'HL', 'HR']) { rx(b[n + 'u'], 0.2 * k, 0.2); rx(b[n + 'l'], 0.1, 0.2); }
@@ -478,7 +488,9 @@ export function updateCreatures(dt, camera) {
     const fl = e.hurtFlash > 0 ? (STONE(e) ? 0.22 : 0.6) : e.exposed > 0 ? (STONE(e) ? 0.05 + 0.04 * Math.sin(T * 14) : 0.22 + 0.14 * Math.sin(T * 14)) : 0;
     const cw = STONE(e) ? 0.03 * e.wakeK : 0; // candlelight on its own wax
     e.mat.emissive.setRGB(fl + cw, fl * (e.hurtFlash > 0 ? 0.95 : 0.7) + cw * 0.6, fl * (e.hurtFlash > 0 ? 0.9 : 0.3) + cw * 0.25);
-    if (e.accentMat) e.accentMat.color.setScalar(e.exposed > 0 ? 2.2 + 0.8 * Math.sin(T * 18) : 0.15 + 0.75 * e.wakeK * (0.85 + 0.15 * Math.sin(T * 3 + e.gait)) + (e.windup > 0 ? 0.6 : 0));
+    const heat = e.exposed > 0 ? 2.2 + 0.8 * Math.sin(T * 18) : 0.15 + 0.75 * e.wakeK * (0.85 + 0.15 * Math.sin(T * 3 + e.gait)) + (e.windup > 0 ? 0.6 : 0);
+    if (e.accentMat) e.accentMat.color.setScalar(heat);
+    if (e.glowU) e.glowU.value = heat; // the molten seams painted into its wax
     // the body is drawn only when something lights it (and, in the ruins, only if no wall is in the way)
     const inSight = !LV.solid || !settings.culling || e.los || e.dist < NEAR_R + 0.6;
     e.bodyVis = (inSight && (!settings.culling || litTest(e.x, e.sy + (e.type === 'moth' ? e.fy : 0), e.z, e.sr) || e.dist < NEAR_R + 0.6 || (e.type === 'moth' && e.dist < 9 && e.los) || (STONE(e) && e.wakeK > 0.6 && e.los && e.dist < 7))) || G.state === 'dead';

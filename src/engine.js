@@ -38,7 +38,7 @@ export const headingOfYaw = (yaw) => Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
 export const rotYOfHeading = (h) => Math.PI / 2 - h;
 
 // ---------- settings ----------
-export const settings = { culling: true, fog: true, psx: false, shadows: true, xray: false, debugLight: false, stats: true, sound: true, detail: 'high', proxies: true };
+export const settings = { culling: true, fog: true, psx: false, shadows: true, xray: false, debugLight: false, stats: true, sound: true, detail: 'high', proxies: true, ring: false };
 
 // =====================================================================
 //  Renderer / scene / camera
@@ -103,15 +103,35 @@ export const ringTex = canvasTex(128, (g, s) => {
 // ---------- PS1 vertex snapping (patched into the standard material) ----------
 export const snapU = { value: new THREE.Vector2(240, 135) };
 export const snapOn = { value: 0 };
+// The curse drains the colour (the 2D Crown's grey world): on the outer floors everything outside the lantern's
+// cone and the fires' pools is pushed toward grey; where your light falls, colour comes back. uGray = how much.
+export const ash = { uGray: { value: 0 }, uLampPos: { value: new THREE.Vector3() }, uLampDir: { value: new THREE.Vector3(0, 0, -1) }, uLampCos: { value: new THREE.Vector2(0.8, 0.95) }, uLampDist: { value: 22 },
+  uFire: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] } };
 export function psx(mat) {
   mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uSnap = snapU; sh.uniforms.uSnapOn = snapOn;
-    sh.vertexShader = 'uniform vec2 uSnap;\nuniform float uSnapOn;\n' + sh.vertexShader.replace(
+    sh.uniforms.uSnap = snapU; sh.uniforms.uSnapOn = snapOn; Object.assign(sh.uniforms, ash);
+    sh.vertexShader = 'uniform vec2 uSnap;\nuniform float uSnapOn;\nvarying vec3 vAshW;\n' + sh.vertexShader.replace(
       '#include <project_vertex>',
       `#include <project_vertex>
+      { vec4 aw = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        aw = instanceMatrix * aw;
+      #endif
+        vAshW = (modelMatrix * aw).xyz; }
       if (uSnapOn > 0.5) { vec4 sp = gl_Position; sp.xy = floor(sp.xy / sp.w * uSnap + 0.5) / uSnap * sp.w; gl_Position = sp; }`);
+    sh.fragmentShader = 'uniform float uGray;\nuniform vec3 uLampPos;\nuniform vec3 uLampDir;\nuniform vec2 uLampCos;\nuniform float uLampDist;\nuniform vec4 uFire[3];\nvarying vec3 vAshW;\n' + sh.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `if (uGray > 0.0) {
+        vec3 tl = vAshW - uLampPos; float dl = length(tl);
+        float lit = smoothstep(uLampCos.x, uLampCos.y, dot(tl / max(dl, 0.001), uLampDir)) * (1.0 - smoothstep(uLampDist * 0.6, uLampDist, dl));
+        lit = max(lit, 1.0 - smoothstep(1.2, 3.2, dl));
+        for (int i = 0; i < 3; i++) lit = max(lit, 1.0 - smoothstep(uFire[i].w * 0.45, uFire[i].w, length(vAshW - uFire[i].xyz)));
+        float g = dot(gl_FragColor.rgb, vec3(0.3, 0.59, 0.11));
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(g) * vec3(0.97, 0.98, 1.02), uGray * (1.0 - lit));
+      }
+      #include <dithering_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'psx1';
+  mat.customProgramCacheKey = () => 'psx2';
   return mat;
 }
 export const matVC = psx(new THREE.MeshLambertMaterial({ vertexColors: true, dithering: true }));

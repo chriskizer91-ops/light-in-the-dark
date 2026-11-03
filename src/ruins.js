@@ -448,6 +448,11 @@ export function pillarHi(v, q, stumpH = 0) {
   s.add(lathe(BASE_P, ls), sc);
   if (!stumpH) {
     s.add(lathe(CAP_P, ls), sc, { matrix: M(0, H - 0.6, 0) });
+    // the capital's carving (CR51): a ring of curled leaves on the bell, and a row of eggs under the abacus
+    const leaf = new THREE.IcosahedronGeometry(1, q > 1 ? 1 : 0), egg = new THREE.IcosahedronGeometry(1, q > 2 ? 1 : 0), nl = [8, 12, 16, 20][q], ne = [0, 12, 18, 24][q];
+    for (let i = 0; i < nl; i++) { const a = (i / nl) * TAU; s.add(leaf, sc, { matrix: M(Math.sin(a) * 0.49, H - 0.47, Math.cos(a) * 0.49, 0.55, a, 0, 0.085, 0.13, 0.035) }); }
+    for (let i = 0; i < nl; i++) { const a = ((i + 0.5) / nl) * TAU; s.add(leaf, sc, { matrix: M(Math.sin(a) * 0.55, H - 0.39, Math.cos(a) * 0.55, 0.75, a, 0, 0.07, 0.1, 0.03) }); }
+    for (let i = 0; i < ne; i++) { const a = (i / ne) * TAU; s.add(egg, sc, { matrix: M(Math.sin(a) * 0.6, H - 0.33, Math.cos(a) * 0.6, 0, a, 0, 0.04, 0.05, 0.03) }); }
     s.add(new THREE.BoxGeometry(1.36, 0.22, 1.36, 2, 1, 2), sc, { matrix: M(0, H - 0.19, 0, 0, 0.02, 0) });
   }
   return s.build();
@@ -578,58 +583,19 @@ export function archGeo(a, H) {
   }
   const g = b.build(); g.userData.top = hTop; return g;
 }
-// murals: faded paintings of the Crown, the Light and the Shadow
-export function muralTexture(sym) {
-  const t = canvasTex(256, (g, S) => {
-    const R = (a, b) => a + (b - a) * Math.random();
-    const bg = { crown: '#4a2018', light: '#18284a', shadow: '#3a3a40' }[sym];
-    g.fillStyle = '#b8ab92'; g.fillRect(0, 0, S, S);
-    g.fillStyle = bg; g.fillRect(14, 14, S - 28, S - 28);
-    g.strokeStyle = '#c8a050'; g.lineWidth = 4; g.strokeRect(20, 20, S - 40, S - 40);
-    const cx = S / 2, cy = S / 2;
-    if (sym === 'crown') {
-      g.fillStyle = 'rgba(255,220,140,.25)'; g.beginPath(); g.arc(cx, cy - 6, 78, 0, TAU); g.fill();
-      g.fillStyle = '#d8a838'; g.beginPath(); g.moveTo(cx - 70, cy + 40); g.lineTo(cx - 70, cy - 30); g.lineTo(cx - 40, cy); g.lineTo(cx - 20, cy - 50); g.lineTo(cx, cy - 8); g.lineTo(cx + 20, cy - 50); g.lineTo(cx + 40, cy); g.lineTo(cx + 70, cy - 30); g.lineTo(cx + 70, cy + 40); g.closePath(); g.fill();
-      g.fillStyle = '#8a2020'; for (const x of [-40, 0, 40]) { g.beginPath(); g.arc(cx + x, cy + 20, 8, 0, TAU); g.fill(); }
-    } else if (sym === 'light') {
-      g.strokeStyle = 'rgba(255,230,160,.8)'; g.lineWidth = 5;
-      for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU; g.beginPath(); g.moveTo(cx + Math.cos(a) * 34, cy + Math.sin(a) * 34); g.lineTo(cx + Math.cos(a) * 92, cy + Math.sin(a) * 92); g.stroke(); }
-      g.fillStyle = '#f0d890'; g.fillRect(cx - 18, cy - 26, 36, 50); g.fillStyle = '#5a4020'; g.fillRect(cx - 22, cy - 34, 44, 8); g.fillRect(cx - 22, cy + 24, 44, 8);
-      g.fillStyle = '#fff4c8'; g.beginPath(); g.ellipse(cx, cy, 8, 14, 0, 0, TAU); g.fill();
-    } else {
-      g.fillStyle = 'rgba(220,220,230,.35)'; g.beginPath(); g.arc(cx, cy, 80, 0, TAU); g.fill();
-      g.fillStyle = '#0c0c10'; g.beginPath(); g.arc(cx, cy, 64, 0, TAU); g.fill();
-      g.fillStyle = '#1a1a20'; g.beginPath(); g.moveTo(cx - 34, cy + 90); g.quadraticCurveTo(cx - 30, cy - 10, cx, cy - 44); g.quadraticCurveTo(cx + 30, cy - 10, cx + 34, cy + 90); g.fill();
-    }
-    // centuries: fading, flaking plaster, soot
-    for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(184,171,146,${R(0.05, 0.25)})`; g.fillRect(Math.random() * S, Math.random() * S, R(1, 3), R(1, 3)); }
-    for (let i = 0; i < 22; i++) { g.fillStyle = `rgba(150,140,120,${R(0.5, 0.9)})`; g.beginPath(); const x = Math.random() * S, y = Math.random() * S; g.moveTo(x, y); for (let k = 0; k < 6; k++) g.lineTo(x + R(-22, 22), y + R(-16, 16)); g.fill(); }
-    const gr = g.createLinearGradient(0, 0, 0, S); gr.addColorStop(0, 'rgba(10,8,6,.35)'); gr.addColorStop(0.3, 'rgba(10,8,6,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S);
-  });
-  return t;
-}
-// plaques: the same three signs, cut into stone. map = the carving, emissiveMap = the lines that glow
-export function plaqueTextures(sym) {
-  const draw = (glow) => (g, S) => {
-    g.fillStyle = glow ? '#000' : '#3a3630'; g.fillRect(0, 0, S, S);
-    if (!glow) for (let i = 0; i < 6000; i++) { const v = Math.random() < 0.5 ? 0 : 255; g.fillStyle = `rgba(${v},${v},${v},.06)`; g.fillRect(Math.random() * S, Math.random() * S, 2, 2); }
-    g.strokeStyle = glow ? '#fff' : '#0c0a08'; g.lineWidth = glow ? 8 : 11; g.lineCap = 'round'; g.lineJoin = 'round';
-    const cx = S / 2, cy = S / 2; g.beginPath();
-    if (sym === 'crown') { g.moveTo(cx - 60, cy + 36); g.lineTo(cx - 60, cy - 30); g.lineTo(cx - 30, cy); g.lineTo(cx, cy - 50); g.lineTo(cx + 30, cy); g.lineTo(cx + 60, cy - 30); g.lineTo(cx + 60, cy + 36); g.closePath(); }
-    else if (sym === 'light') { g.arc(cx, cy, 24, 0, TAU); for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; g.moveTo(cx + Math.cos(a) * 40, cy + Math.sin(a) * 40); g.lineTo(cx + Math.cos(a) * 72, cy + Math.sin(a) * 72); } }
-    else { g.arc(cx, cy, 56, 0, TAU); g.moveTo(cx + 56, cy); g.arc(cx + 22, cy - 10, 50, 0, TAU); }
-    g.stroke();
-    g.strokeStyle = glow ? 'rgba(255,255,255,.5)' : '#3a352c'; g.lineWidth = 4; g.strokeRect(10, 10, S - 20, S - 20);
-  };
-  return { map: canvasTex(256, draw(false)), glow: canvasTex(256, draw(true)) };
-}
+
+// the stone brazier (CR51): an octagonal pedestal with a carved panel on every face, carrying a wide,
+// shallow bowl 1.2 m across with its rim at 1 m
+const flatPos = (g) => (g.index ? g.toNonIndexed() : g).attributes.position.array;
 export function stoneBrazierGeo() {
-  const b = new GeoBuilder(), c = col(0x7a746a), ash = col(0x3a3430);
-  b.add(T.box, M(0, 0.08, 0, 0, 0.4, 0, 0.7, 0.16, 0.7), c, 0.06);
-  b.add(T.cyl6, M(0, 0.55, 0, 0, 0, 0, 0.2, 0.8, 0.2), c, 0.08);
-  b.add(T.cone, M(0, 1.08, 0, Math.PI, 0, 0, 0.48, 0.3, 0.48), c, 0.06);
-  b.add(T.cyl10, M(0, 1.22, 0, 0, 0, 0, 0.5, 0.06, 0.5), c, 0.06);
-  b.add(T.ico, M(0, 1.2, 0, 0, 0, 0, 0.38, 0.1, 0.38), ash, 0.2);
+  const b = new GeoBuilder(), c = col(0x7e776a), dk = col(0x4e483f), ash = col(0x2a2622), o8 = Math.PI / 8;
+  b.add(flatPos(new THREE.CylinderGeometry(0.46, 0.49, 0.1, 8)), M(0, 0.05, 0, 0, o8, 0), dk, 0.05);
+  b.add(flatPos(new THREE.CylinderGeometry(0.39, 0.42, 0.08, 8)), M(0, 0.14, 0, 0, o8, 0), c, 0.05);
+  b.add(flatPos(new THREE.CylinderGeometry(0.29, 0.32, 0.52, 8)), M(0, 0.44, 0, 0, o8, 0), c, 0.05);
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; b.add(T.box, M(Math.sin(a) * 0.285, 0.44, Math.cos(a) * 0.285, 0, a, 0, 0.13, 0.32, 0.03), dk, 0.08); }
+  b.add(flatPos(new THREE.CylinderGeometry(0.37, 0.3, 0.1, 8)), M(0, 0.74, 0, 0, o8, 0), c, 0.05);
+  b.add(flatPos(lathe([[0.001, 0.78], [0.22, 0.78], [0.42, 0.83], [0.55, 0.91], [0.6, 0.96], [0.6, 1.0], [0.55, 1.0], [0.5, 0.95], [0.3, 0.9], [0.001, 0.89]], 16)), M(0, 0, 0), c, 0.04);
+  b.add(T.ico, M(0, 0.91, 0, 0, 0, 0, 0.44, 0.06, 0.44), ash, 0.2);
   return b.build();
 }
 export function stairGeo() {

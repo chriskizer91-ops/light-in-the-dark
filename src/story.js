@@ -1,7 +1,7 @@
 import { THREE, glowTex, matVC, psx, GeoBuilder, T, M, col, rr, mr, clamp, lerp, smooth, damp, wrapAngle, TAU, settings } from './engine.js';
 import { LV, TILE, idx, inBounds, isWalkable, toTile, lineOfSight, inRect } from './level.js';
 import { W, seenPoint, collapseTiles, DETAIL } from './world3d.js';
-import { lantern, beamAt } from './lantern.js';
+import { lantern, beamAt, aimedAt } from './lantern.js';
 import { CR } from './creatures.js';
 import { burst, dust, ember } from './fx.js';
 import { G, P, H } from './state.js';
@@ -255,7 +255,7 @@ export function updateStory(dt, live) {
   for (const p of ST.plaques) {
     let e = 0, er = 1, eg = 1, eb = 1;
     if (ST.puzzle && !ST.solved && live) {
-      const r = beamAt(p.x, p.y, p.z), aimed = r.d < 14 && r.ang < Math.max(0.07, 0.45 / r.d) && lineOfSight(P.x, P.z, p.x + p.f.nx * 1.2, p.z + p.f.nz * 1.2);
+      const aimed = aimedAt(p.x, p.y, p.z, 14, 0.45) && lineOfSight(P.x, P.z, p.x + p.f.nx * 1.2, p.z + p.f.nz * 1.2);
       if (aimed && !p.lit) {
         if (bright) { p.hold += dt; if (p.hold > 0.75) select(p); }
         else if (!G.tips.plaqueBright) { G.tips.plaqueBright = 1; H.say('Bright light. They answer to the wide beam.'); }

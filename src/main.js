@@ -1,3 +1,4 @@
+import { buildNPCs, updateNPCs, talkTarget, talkName, openTalk, talkKey, talkAdvance, NPCS } from './npc.js';
 import { THREE, $, IS_TOUCH, renderer, scene, camera, hemi, canvas, settings, snapOn, snapU, statsProbe, clamp, lerp, smooth, damp, mr, rr, wrapAngle, headingOfYaw, TAU } from './engine.js';
 import { generateLevel, LV, TILE, idx, inBounds, toTile, lineOfSight, moveWithCollisions } from './level.js';
 import { createLantern, updateLantern, lantern, MODES, setMode, swingBlade, beamAt, glint, inBeam, showViewModels, NEAR_R } from './lantern.js';
@@ -6,7 +7,7 @@ import { buildStory, updateStory, slashStory, storyCreatureDown, ST } from './st
 import { spawnCreatures, updateCreatures, CR, damageEnemy, exposeEnemy, interruptEnemy, addCreature, refreshCreatureDetail, creatureTris } from './creatures.js';
 import { updateFX, burst } from './fx.js';
 import { rigTris } from './rigs.js';
-import { G, P, H, BAL } from './state.js';
+import { G, P, H, BAL, S, resetStory, DF, DIFFS, setDifficulty } from './state.js';
 import { initAudio, updateAudio, sfx, setSound, AU, setAmbience } from './audio.js';
 import { readMove, A, tryLock } from './input.js';
 
@@ -22,7 +23,7 @@ createLantern();
 // ---------- voice (the lantern speaks) + hints ----------
 const VO = { q: [], cur: null, typed: 0, hold: 0, cool: {} };
 // who: the lantern (default), 'sera' or 'merchant'
-const WHO = { sera: 'SERA', merchant: 'THE GRAY MERCHANT' };
+const WHO = { sera: 'SERA', merchant: 'THE GRAY MERCHANT', lyn: 'LYN' };
 H.say = (text, force = false, who = '') => {
   const now = G.t; if (!force && (VO.cool[text] || -99) > now) return;
   VO.cool[text] = now + 10;
@@ -34,7 +35,7 @@ H.hint = (text, dur = 3.5) => { const el = $('hint'); el.textContent = text; el.
 function voiceTick(dt) {
   if (!VO.cur && VO.q.length) {
     VO.cur = VO.q.shift(); VO.typed = 0; VO.hold = 2.2 + VO.cur.text.length / 22; const v = $('voice');
-    v.classList.add('on'); v.classList.toggle('sera', VO.cur.who === 'sera'); v.classList.toggle('merchant', VO.cur.who === 'merchant'); $('voiceWho').textContent = WHO[VO.cur.who] || '';
+    v.classList.add('on'); v.classList.toggle('sera', VO.cur.who === 'sera'); v.classList.toggle('merchant', VO.cur.who === 'merchant'); v.classList.toggle('lyn', VO.cur.who === 'lyn'); $('voiceWho').textContent = WHO[VO.cur.who] || '';
   }
   if (VO.cur) {
     VO.typed = Math.min(VO.cur.text.length, VO.typed + dt * 34);
@@ -47,7 +48,7 @@ function voiceTick(dt) {
 // ---------- damage to the Warden ----------
 H.damagePlayer = (amount, source, fx, fz) => {
   if (P.invuln > 0 || G.state !== 'playing') return;
-  const real = amount * BAL.dmgTaken * (1 - P.dr);
+  const real = amount * BAL.dmgTaken * DF.dmg * (1 - P.dr);
   P.hp = Math.max(0, P.hp - real); P.invuln = 0.55; P.hurt = 0.4; G.shake = Math.max(G.shake, 0.45); sfx.hurt();
   if (fx !== undefined) { const a = Math.atan2(P.z - fz, P.x - fx); P.pushX = Math.cos(a) * 5; P.pushZ = Math.sin(a) * 5; }
   if (P.hp <= 0) die();
@@ -59,6 +60,8 @@ H.creatureDown = (e) => { storyCreatureDown(e); if (e.guardian) spawnPickup('hea
 // ---------- run flow ----------
 let runSeed = (Date.now() % 100000) | 0;
 const FLOORS = {
+  1: { title: 'ASH HOLLOW', lines: [['a', 2, 'Voices. Real ones. I had forgotten what they sound like.'], ['b', 10, 'They all look at the brand. Not at me.']], exit: 'The gate. Past it, everything is gray.', leave: 'LEAVE THROUGH THE GATE' },
+  2: { title: 'THE GRAY FOREST', lines: [['a', 2, 'No colour left in anything. Only what I touch.'], ['b', 9, 'Small footprints. Someone ran this way.']], exit: 'Roots, going down. The woods are deeper below.' },
   3: { title: 'THE DEEP WOODS', lines: [['a', 2, 'The trees have stopped growing. They remember how.'], ['b', 8, 'I am awake now. Do not let me go out.']], exit: 'Down. The roots go down.' },
   4: { title: 'THE EASTERN RUINS', lines: [['a', 2, 'The stone here was carved by hands that are still here.'], ['b', 9, 'Walls again. What is behind them stays dark to me until we go through.']], exit: 'Stairs. Down again, into the inner ruins.' },
 };
@@ -66,11 +69,13 @@ const FLOORS = {
 function buildRun(seed, floor = 3, carry = null) {
   generateLevel(seed, floor); buildWorld(); spawnCreatures(); buildStory(); setAmbience(floor);
   G.floor = floor;
-  Object.assign(P, { x: LV.spawn.x, z: LV.spawn.z, hp: 100, maxHp: 100, fuel: 100, invuln: 0, dashT: 0, dashCd: 0, attackCd: 0, flareCd: 0, pulseCd: 0, hurt: 0, bob: 0, moving: 0, pushX: 0, pushZ: 0, pitch: -0.05, atkBonus: 0, brightBonus: 0, dr: 0, pulseCostMult: 1 });
+  Object.assign(P, { x: LV.spawn.x, z: LV.spawn.z, hp: 100, maxHp: 100, fuel: 100, invuln: 0, dashT: 0, dashCd: 0, attackCd: 0, flareCd: 0, pulseCd: 0, hurt: 0, bob: 0, moving: 0, pushX: 0, pushZ: 0, pitch: -0.05, atkBonus: 0, brightBonus: 0, dr: 0, pulseCostMult: 1, speedK: 0 });
   if (carry) Object.assign(P, carry);
+  G.talk = null; $('dlg').classList.add('hidden'); document.body.classList.remove('talking');
   // start facing the last fire
   const b = LV.braziers.find((q) => q.lit && Math.hypot(q.x - P.x, q.z - P.z) < 12);
   P.yaw = b ? Math.atan2(-(b.x - P.x), -(b.z - P.z)) : 0;
+  buildNPCs();
   Object.assign(G, { t: 0, paused: false, danger: 0, shake: 0, hitstop: 0, flash: 0, tips: {}, endT: 0, won: false, eyesSeen: false });
   if (!carry) Object.assign(G, { kills: 0, oilFound: 0, secrets: 0, braziersLit: 0, runT: 0 });
   else Object.assign(G.tips, { c: 1, d: 1 }); // the controls were explained on the floor above
@@ -82,8 +87,8 @@ function buildRun(seed, floor = 3, carry = null) {
   for (const br of LV.braziers) if (br.lit && Math.hypot(br.x - P.x, br.z - P.z) < 14) revealAround(br.x, br.z, 4);
   VO.q = []; VO.cur = null; VO.cool = {}; $('voice').classList.remove('on');
 }
-function startGame(floor = 3) {
-  initAudio();
+function startGame(floor = 1) {
+  initAudio(); resetStory();
   if (G.state !== 'menu' || floor !== 3) { runSeed = (runSeed * 7919 + 13) % 100000; buildRun(runSeed, floor); }
   else { spawnCreatures(); }
   G.state = 'playing'; G.t = 0;
@@ -114,7 +119,7 @@ function descend() {
 }
 // down the roots into the ruins: health and oil carry over (+28 health, +50 oil, as in the Crown)
 function nextFloor() {
-  const carry = { hp: Math.min(P.maxHp, P.hp + 28), maxHp: P.maxHp, fuel: Math.min(P.maxFuel, P.fuel + 50), atkBonus: P.atkBonus, brightBonus: P.brightBonus, dr: P.dr, pulseCostMult: P.pulseCostMult };
+  const carry = { hp: Math.min(P.maxHp, P.hp + 28 * DF.carry), maxHp: P.maxHp, fuel: Math.min(P.maxFuel, P.fuel + 50 * DF.carry), atkBonus: P.atkBonus, brightBonus: P.brightBonus, dr: P.dr, pulseCostMult: P.pulseCostMult, speedK: P.speedK };
   G.runT += G.t;
   runSeed = (runSeed * 7919 + 13) % 100000; buildRun(runSeed, LV.floor + 1, carry);
   G.state = 'playing';
@@ -125,16 +130,16 @@ function showEnd() {
   const won = G.won, total = G.runT + G.t, m = Math.floor(total / 60), s = String(Math.floor(total % 60)).padStart(2, '0'), f = LV.floor;
   $('endTitle').textContent = won ? 'DOWN INTO THE DARK' : 'THE LANTERN GOES OUT';
   const story = ST.on ? (ST.freed ? ' Sera is free.' : ST.solved ? ' The Crown Shard hums in your pack.' : ST.guardianDown ? ' The guardian is dust.' : '') : '';
-  $('endSub').textContent = won ? 'Floor V, the Inner Ruins, waits below.' + story : f === 4 ? 'The Eastern Ruins keep what they take.' : 'The Deep Woods keep what they take.';
-  $('endStats').innerHTML = `${won ? 'Descended' : 'Lasted'} in ${m}:${s}<br>Slain ${G.kills} · Oil found ${G.oilFound} · Caches ${G.secrets} · Braziers lit ${G.braziersLit}`;
-  $('againBtn').textContent = won ? 'AGAIN, FROM THE WOODS' : f === 4 ? 'AGAIN, FROM THE RUINS' : 'AGAIN';
-  G.endFloor = won ? 3 : f;
+  $('endSub').textContent = won ? 'Floor V, the Inner Ruins, waits below.' + story : f === 4 ? 'The Eastern Ruins keep what they take.' : f === 2 ? 'The Gray Forest keeps what it takes.' : 'The Deep Woods keep what they take.';
+  $('endStats').innerHTML = `${DF.name} \u00b7 ${won ? 'Descended' : 'Lasted'} in ${m}:${s}<br>Slain ${G.kills} · Oil found ${G.oilFound} · Caches ${G.secrets} · Braziers lit ${G.braziersLit}`;
+  $('againBtn').textContent = won ? 'AGAIN, FROM THE VILLAGE' : f === 4 ? 'AGAIN, FROM THE RUINS' : 'AGAIN, FROM THE VILLAGE';
+  G.endFloor = !won && f === 4 ? 4 : 1;
   $('end').classList.remove('hidden'); $('hud').classList.add('hidden'); $('touchUI').classList.add('hidden'); $('tricksBtn').classList.add('hidden'); toggleTricks(false);
   G.state = 'ended'; showViewModels(false);
 }
-$('startBtn').addEventListener('click', () => startGame(3));
+$('startBtn').addEventListener('click', () => { G.state = 'ended'; startGame(1); });
 $('startBtn4').addEventListener('click', () => { G.state = 'ended'; startGame(4); });
-$('againBtn').addEventListener('click', () => { G.state = 'ended'; startGame(G.endFloor || 3); });
+$('againBtn').addEventListener('click', () => { G.state = 'ended'; startGame(G.endFloor || 1); });
 $('menuBtn').addEventListener('click', () => toMenu());
 $('pauseOv').addEventListener('click', () => { A.resume(); tryLock(); });
 
@@ -181,6 +186,7 @@ A.pulse = () => {
 A.mode = () => A.setMode((lantern.mode + 1) % 3);
 A.setMode = (m) => {
   if (m === lantern.mode) return;
+  if (LV.floor === 1) { H.hint('Not here. The village keeps the shutter half open.', 1.8); return; }
   if (m === 2 && P.fuel < 18) { H.hint('Too little oil to open the shutter wide.', 1.8); return; }
   setMode(m); sfx.shutter(m);
   H.hint('Lantern: ' + MODES[m].name, 1.2);
@@ -188,12 +194,14 @@ A.setMode = (m) => {
   if (m === 0 && !G.tips.dim) { G.tips.dim = 1; H.say('Hushed. Small steps.'); }
 };
 A.use = () => {
+  const who = talkTarget(); if (who) { openTalk(who); return; }
   if (Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z) < 2.6) { descend(); return; }
   const b = nearestBrazier(2.6, false); if (b) lightBrazier(b);
 };
 A.pause = () => { G.paused = true; $('pauseOv').classList.remove('hidden'); };
 A.resume = () => { if (!tricksOpen) G.paused = false; $('pauseOv').classList.add('hidden'); };
 A.tricks = () => toggleTricks();
+A.talkKey = talkKey; A.talkAdvance = talkAdvance;
 
 function nearestBrazier(r, lit) { let best = null, bd = r; for (const b of LV.braziers) { if (b.lit !== lit) continue; const d = Math.hypot(b.x - P.x, b.z - P.z); if (d < bd) { bd = d; best = b; } } return best; }
 function lightBrazier(b) {
@@ -206,7 +214,7 @@ function lightBrazier(b) {
 function markTile(tx, ty) { if (inBounds(tx, ty)) LV.discovered[idx(tx, ty)] = 1; }
 function revealAround(x, z, rT) { const cx = toTile(x), cy = toTile(z); for (let y = -rT; y <= rT; y++) for (let xx = -rT; xx <= rT; xx++) if (xx * xx + y * y <= rT * rT) markTile(cx + xx, cy + y); }
 function discover() {
-  const h = Math.atan2(lantern.dir.z, lantern.dir.x), n = 13, A0 = lantern.angle * 1.1, R = Math.min(lantern.distance, 30) * Math.min(1, lantern.k + 0.2);
+  const h = Math.atan2(lantern.dir.z, lantern.dir.x), n = lantern.ring ? 28 : 13, A0 = lantern.ring ? Math.PI * (1 - 1 / 28) : lantern.angle * 1.1, R = Math.min(lantern.distance, 30) * Math.min(1, lantern.k + 0.2);
   for (let i = 0; i < n; i++) {
     const a = h - A0 + (2 * A0 * i) / (n - 1), c = Math.cos(a), s = Math.sin(a);
     for (let d = 0.5; d < R; d += 0.8) { const tx = toTile(P.x + c * d), ty = toTile(P.z + s * d); markTile(tx, ty); if (!inBounds(tx, ty) || LV.tiles[idx(tx, ty)] === 0) break; }
@@ -220,7 +228,7 @@ let discT = 0;
 function updatePlayer(dt) {
   const [mx, mz] = readMove(dt);
   P.pitch = clamp(P.pitch, -1.3, 1.25);
-  const sp = 3.7 * (lantern.mode === 0 ? 1.06 : 1), s = Math.sin(P.yaw), c = Math.cos(P.yaw);
+  const sp = 3.7 * (lantern.mode === 0 ? 1.06 : 1) * (1 + P.speedK), s = Math.sin(P.yaw), c = Math.cos(P.yaw);
   let vx = (-s * mz + c * mx) * sp, vz = (-c * mz - s * mx) * sp;
   if (P.dashT > 0) { vx = P.dashX * 11; vz = P.dashZ * 11; }
   vx += P.pushX; vz += P.pushZ; const pk = Math.exp(-9 * dt); P.pushX *= pk; P.pushZ *= pk;
@@ -233,9 +241,9 @@ function updatePlayer(dt) {
 function updateRules(dt) {
   const M0 = MODES[lantern.mode];
   // oil
-  P.fuel = Math.max(0, P.fuel - M0.drain * dt);
+  if (LV.floor !== 1) P.fuel = Math.max(0, P.fuel - M0.drain * DF.drain * dt); // the village burns no oil
   if (P.fuel <= 0) {
-    P.hp = Math.max(0, P.hp - BAL.darkDrain * dt); if (P.hp <= 0) { die(); return; }
+    P.hp = Math.max(0, P.hp - BAL.darkDrain * DF.dark * dt); if (P.hp <= 0) { die(); return; }
     H.say('I cannot hold much longer.');
   }
   if (P.fuel < 18 && lantern.mode === 2) { setMode(1); H.hint('The lantern narrows to save oil.', 1.8); }
@@ -289,8 +297,8 @@ function updateRules(dt) {
   for (const p of LV.pickups) {
     if (p.collected || Math.hypot(p.x - P.x, p.z - P.z) > 1.25) continue;
     p.collected = true; sfx.pickup();
-    if (p.type === 'fuel') { P.fuel = Math.min(P.maxFuel, P.fuel + BAL.oil); G.oilFound++; H.hint('Oil recovered.', 1.8); }
-    else { P.hp = Math.min(P.maxHp, P.hp + BAL.tonic); H.hint('A bitter tonic steadies you.', 1.8); }
+    if (p.type === 'fuel') { P.fuel = Math.min(P.maxFuel, P.fuel + BAL.oil * DF.loot); G.oilFound++; H.hint('Oil recovered.', 1.8); }
+    else { P.hp = Math.min(P.maxHp, P.hp + BAL.tonic * DF.loot); H.hint('A bitter tonic steadies you.', 1.8); }
   }
   // hidden caches: Bright light close up finds them (or a pulse)
   for (const s of LV.secrets) {
@@ -299,7 +307,7 @@ function updateRules(dt) {
       if (d < 7 && inBeam(s.x, 0.2, s.z, 0.3, 0, 0) && lineOfSight(P.x, P.z, s.x, s.z)) revealSecret(s);
     }
     if (s.revealed && !s.found && Math.hypot(s.x - P.x, s.z - P.z) < 1.35) {
-      s.found = true; G.secrets++; sfx.secret(); P.fuel = Math.min(P.maxFuel, P.fuel + BAL.cache); H.say('A hidden cache. The lantern hums.');
+      s.found = true; G.secrets++; sfx.secret(); P.fuel = Math.min(P.maxFuel, P.fuel + BAL.cache * DF.loot); H.say('A hidden cache. The lantern hums.');
     }
   }
   // the way down
@@ -347,7 +355,8 @@ function updateItems(dt, t) {
 function updateCamera(dt) {
   let y = 1.62, pitch = P.pitch;
   if (G.state === 'dead') { const k = smooth(0, 1.6, G.endT); y = lerp(1.62, 0.45, k); pitch = lerp(P.pitch, -0.5, k); }
-  if (G.state === 'descending') { const k = smooth(0, 2.2, G.endT); y = lerp(1.62, -2.5, k); pitch = lerp(P.pitch, -0.9, Math.min(1, k * 2)); if (LV.floor === 4) { P.x = lerp(P.x, LV.exit.x, 0.02); P.z = lerp(P.z, LV.exit.z, 0.02); } }
+  if (G.state === 'descending' && LV.floor === 1) { P.x = lerp(P.x, LV.exit.x + 4, 0.012); P.z = lerp(P.z, LV.exit.z, 0.02); pitch = lerp(P.pitch, 0, 0.05); } // out through the gate
+  else if (G.state === 'descending') { const k = smooth(0, 2.2, G.endT); y = lerp(1.62, -2.5, k); pitch = lerp(P.pitch, -0.9, Math.min(1, k * 2)); if (LV.floor === 4) { P.x = lerp(P.x, LV.exit.x, 0.02); P.z = lerp(P.z, LV.exit.z, 0.02); } }
   const bobY = Math.sin(P.bob * 2) * 0.035 * P.moving, bobX = Math.cos(P.bob) * 0.025 * P.moving, sh = G.shake;
   camera.position.set(P.x + Math.cos(P.yaw) * bobX, y + bobY, P.z - Math.sin(P.yaw) * bobX);
   camera.rotation.set(pitch + (Math.random() - 0.5) * sh * 0.06, P.yaw + (Math.random() - 0.5) * sh * 0.06, 0);
@@ -356,8 +365,9 @@ function updateCamera(dt) {
 }
 function updateEnvironment() {
   if (settings.debugLight) { hemi.intensity = 3; hemi.color.set(0xd8dce8); hemi.groundColor.set(0x403830); scene.fog.near = 500; scene.fog.far = 1000; scene.background.set(0x0b1220); return; }
-  hemi.intensity = 0.035; hemi.color.set(0x6a7890); hemi.groundColor.set(0x0a0806); scene.background.set(0x000000);
-  if (settings.fog) { scene.fog.near = 7; scene.fog.far = Math.max(lantern.distance + 9, FX.flareK > 0 ? FX.flareR + 8 : 0, 26); } else { scene.fog.near = 500; scene.fog.far = 1000; }
+  const sky = settings.ring && LV && LV.floor === 1; // the original lights Ash Hollow under an iron sky: you see down the street
+  hemi.intensity = sky ? 0.55 : 0.035; hemi.color.set(sky ? 0x8a96a8 : 0x6a7890); hemi.groundColor.set(sky ? 0x2a2622 : 0x0a0806); scene.background.set(sky ? 0x0c0e12 : 0x000000);
+  if (settings.fog) { scene.fog.near = sky ? 18 : 7; scene.fog.far = sky ? 60 : Math.max(lantern.distance + 9, FX.flareK > 0 ? FX.flareR + 8 : 0, 26); } else { scene.fog.near = 500; scene.fog.far = 1000; }
 }
 
 // ---------- HUD ----------
@@ -372,6 +382,7 @@ function updateHUD(dt) {
   if (IS_TOUCH) { $('bDash').style.setProperty('--cd', (P.dashCd / 1.6).toFixed(3)); $('bFlare').style.setProperty('--cd', (P.flareCd / 5.6).toFixed(3)); $('bPulse').style.setProperty('--cd', (P.pulseCd / 2.15).toFixed(3)); }
   const mood = P.fuel < 15 ? 'AFRAID' : P.hp < 30 ? 'WORRIED' : MODES[lantern.mode].mood.toUpperCase();
   setIf('mood', mood, (v) => { $('mood').textContent = v; });
+  setIf('coins', S.coins + (S.lynJoined ? '+L' : ''), () => { $('coins').textContent = '\u25c8 ' + S.coins + ' COINS' + (S.lynJoined ? '  \u00b7  LYN WITH YOU' : ''); });
   $('danger').style.opacity = (G.danger * (0.55 + 0.45 * Math.sin(performance.now() * 0.009))).toFixed(3);
   $('hurtfx').style.opacity = (P.hurt / 0.4).toFixed(3);
   G.flash = Math.max(0, G.flash - dt * 2.2); $('flashfx').style.opacity = (G.flash * 0.7).toFixed(3);
@@ -379,7 +390,9 @@ function updateHUD(dt) {
   let pr = '';
   if (G.state === 'playing') {
     const key = IS_TOUCH ? 'USE' : 'R';
-    if (Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z) < 2.6) pr = key + ' · DESCEND';
+    const who = talkTarget();
+    if (who) pr = key + ' · TALK TO ' + talkName(who);
+    else if (Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z) < 2.6) pr = key + ' · ' + (FLOORS[LV.floor].leave || 'DESCEND');
     else if (ST.on && ST.sera.breakable && !ST.freed && ST.anchors.some((a) => !a.broken && Math.hypot(a.x - P.x, a.z - P.z) < 2.8)) pr = (IS_TOUCH ? 'SLASH' : 'CLICK') + ' · STRIKE THE ANCHOR';
     else if (nearestBrazier(2.6, false)) pr = key + ' · LIGHT THE BRAZIER';
   }
@@ -404,7 +417,7 @@ function drawMap() {
   for (const b of LV.braziers) if (b.lit && LV.discovered[idx(toTile(b.x), toTile(b.z))]) { mg.fillStyle = '#ff9a40'; mg.fillRect(b.x / TILE * sc - 1.5, b.z / TILE * sc - 1.5, 3, 3); }
   if (LV.exit.found) { mg.strokeStyle = '#e8c878'; mg.lineWidth = 1.5; mg.beginPath(); mg.arc(LV.exit.x / TILE * sc, LV.exit.z / TILE * sc, 3.5, 0, TAU); mg.stroke(); }
   const px = P.x / TILE * sc, pz = P.z / TILE * sc, h = Math.atan2(lantern.dir.z, lantern.dir.x);
-  mg.fillStyle = 'rgba(255,226,170,.22)'; mg.beginPath(); mg.moveTo(px, pz); mg.arc(px, pz, lantern.distance / TILE * sc, h - lantern.angle, h + lantern.angle); mg.closePath(); mg.fill();
+  mg.fillStyle = 'rgba(255,226,170,.22)'; mg.beginPath(); mg.moveTo(px, pz); mg.arc(px, pz, lantern.distance / TILE * sc, lantern.ring ? 0 : h - lantern.angle, lantern.ring ? Math.PI * 2 : h + lantern.angle); mg.closePath(); mg.fill();
   mg.fillStyle = '#fff'; mg.beginPath(); mg.arc(px, pz, 2, 0, TAU); mg.fill();
 }
 
@@ -423,7 +436,14 @@ document.querySelectorAll('#tricks input').forEach((inp) => {
 });
 function setDetail(d) { settings.detail = d; document.querySelectorAll('#detailSeg button').forEach((b) => b.classList.toggle('on', b.dataset.d === d)); ensureDetail(); refreshCreatureDetail(); }
 document.querySelectorAll('#detailSeg button').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); setDetail(b.dataset.d); }));
+try { if (localStorage.getItem('hc3d-ring') === '1') settings.ring = true; setDifficulty(localStorage.getItem('hc3d-diff') || 'standard'); } catch (e) { /* private mode: no memory */ }
+function diffLabel() { $('diffBtn').innerHTML = 'DIFFICULTY: ' + DF.name + '<small>' + DF.blurb + '</small>'; }
+$('diffBtn').addEventListener('click', (e) => { e.stopPropagation(); const ks = Object.keys(DIFFS); setDifficulty(ks[(ks.indexOf(DF.key) + 1) % ks.length]); try { localStorage.setItem('hc3d-diff', DF.key); } catch (er) { /* ignore */ } diffLabel(); });
+diffLabel();
+function ringLabel() { $('ringBtn').textContent = settings.ring ? 'LANTERN: A RING OF LIGHT (THE ORIGINAL)' : 'LANTERN: A BEAM (ONE DIRECTION)'; }
+$('ringBtn').addEventListener('click', (e) => { e.stopPropagation(); settings.ring = !settings.ring; applySetting('ring'); });
 function applySetting(k) {
+  if (k === 'ring') { try { localStorage.setItem('hc3d-ring', settings.ring ? '1' : '0'); } catch (e) { /* ignore */ } ringLabel(); }
   const box = document.querySelector(`#tricks input[data-k=${k}]`); if (box) box.checked = !!settings[k];
   if (k === 'psx') { $('stage').classList.toggle('px', settings.psx); snapOn.value = settings.psx ? 1 : 0; resize(); }
   if (k === 'xray') $('xray').classList.toggle('hidden', !settings.xray);
@@ -452,7 +472,7 @@ function drawXray() {
   xg.clearRect(0, 0, S, S); xg.save(); xg.beginPath(); xg.arc(cx, cy, S / 2, 0, TAU); xg.clip();
   xg.fillStyle = 'rgba(0,0,0,.8)'; xg.fillRect(0, 0, S, S);
   const fx = lantern.dir.x, fz = lantern.dir.z, fl = Math.hypot(fx, fz) || 1, off = Math.atan2((fx * c - fz * s) / fl, (-fx * s - fz * c) / fl);
-  if (lantern.k > 0.02) { xg.fillStyle = 'rgba(255,236,190,.16)'; xg.beginPath(); xg.moveTo(cx, cy); xg.arc(cx, cy, lantern.distance * sc, -Math.PI / 2 + off - lantern.angle, -Math.PI / 2 + off + lantern.angle); xg.closePath(); xg.fill(); }
+  if (lantern.k > 0.02) { xg.fillStyle = 'rgba(255,236,190,.16)'; xg.beginPath(); xg.moveTo(cx, cy); xg.arc(cx, cy, lantern.distance * sc, lantern.ring ? 0 : -Math.PI / 2 + off - lantern.angle, lantern.ring ? Math.PI * 2 : -Math.PI / 2 + off + lantern.angle); xg.closePath(); xg.fill(); }
   if (W.ruins) { // walls: bright where drawn this frame, dim where culled
     for (const c of W.ruins.cells) for (const f of c.faces) {
       const a = f.xFace ? [f.plane, f.u0] : [f.u0, f.plane], b = f.xFace ? [f.plane, f.u0 + TILE] : [f.u0 + TILE, f.plane];
@@ -504,10 +524,11 @@ function runFrame(now, doRender, fixedDt) {
   if (G.state === 'dead' || G.state === 'descending') voiceTick(rdt);
   updateCamera(rdt);
   const live = G.state === 'playing' && !G.paused;
-  updateLantern(rdt, { on: G.state !== 'ended' && !(G.state === 'dead' && G.endT > 1.2), fuel: G.state === 'menu' ? 100 : P.fuel, bob: P.bob, moving: P.moving, menu: G.state === 'menu' });
+  updateLantern(rdt, { on: G.state !== 'ended' && !(G.state === 'dead' && G.endT > 1.2), fuel: G.state === 'menu' ? 100 : P.fuel, bob: P.bob, moving: P.moving, menu: G.state === 'menu', brightBonus: P.brightBonus });
   updateWorldLights(rdt, t);
   updateCreatures(live ? dt : G.state === 'menu' ? rdt : 0, camera);
   updateStory(live ? dt : 0, live); ruinsTick(rdt, P.x, P.z, H.say);
+  if (G.state !== 'menu') updateNPCs(rdt, live);
   updateItems(rdt, t);
   updateEnvironment();
   updateCulling(); updateCover(); updateFireflies(rdt, t, G.danger); updateFX(G.paused ? 0 : dt);
@@ -522,11 +543,11 @@ function runFrame(now, doRender, fixedDt) {
 
 // boot
 resize();
-applySetting('psx'); applySetting('stats'); applySetting('xray'); setDetail(settings.detail);
+applySetting('psx'); applySetting('stats'); applySetting('xray'); applySetting('ring'); setDetail(settings.detail);
 toMenu();
 requestAnimationFrame(frame);
 
 // hook for automated playtesting
-window.__crown3d = { G, P, ST, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris, descend, nextFloor,
+window.__crown3d = { G, P, ST, S, NPCS, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris, descend, nextFloor,
   measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: creatureTris(), blocks: W.ruins && W.ruins.blocks ? W.ruins.blocks.drawn : 0, occluded: W.occluded || 0 }; },
   step(sec, render = true) { let n = Math.round(sec * 60), now = lastT; for (let i = 0; i < n; i++) { now += 1000 / 60; runFrame(now, false, 1 / 60); } if (render) runFrame(now + 1000 / 60, true, 1 / 60); } };

@@ -111,6 +111,7 @@ function roomDimensions(type) {
 // Floor IV (the 2D Crown's dl4 table): wax sentinels, leeches, moths, gloom hounds
 function pickEnemyType() {
   const r = rnd();
+  if (LV.floor === 2) return r < 0.7 ? 'wolf' : 'moth'; // the Gray Forest (2D floor II): wolves, and the moths that drink light
   if (LV.floor === 4) return r < 0.25 ? 'sentinel' : r < 0.55 ? 'leech' : r < 0.8 ? 'moth' : 'hound';
   return r < 0.4 ? 'wolf' : r < 0.62 ? 'moth' : r < 0.8 ? 'leech' : 'bandit';
 }
@@ -148,29 +149,37 @@ function populateRoom(room, isStart, isEnd) {
   }
   if (!isStart && !isEnd && rnd() < 0.45 * def.lootMult) { const p = randomFloorTileInRoom(room); placeSecret('fuel', p.x, p.y); }
   if (!isStart && !isEnd) {
-    const n = rnd() < def.enemyMult * 0.6 ? ri(1, 3) : 0;
+    const n = rnd() < def.enemyMult * (LV.floor === 2 ? 0.45 : 0.6) ? ri(1, LV.floor === 2 ? 2 : 3) : 0;
     for (let i = 0; i < n; i++) {
       const p = randomFloorTileInRoom(room); if (!isOpenArea(p.x, p.y)) continue;
       const w = at(p.x, p.y); if (Math.hypot(w.x - LV.spawn.x, w.z - LV.spawn.z) < TILE * 9) continue;
       const t = pickEnemyType(); LV.spawns.push({ type: t, x: w.x, z: w.z, face: Math.atan2(c.y - p.y, c.x - p.x) });
-      if (t === 'wolf' && rnd() < 0.5) LV.spawns.push({ type: 'wolf', x: w.x + rr(-1.5, 1.5), z: w.z + rr(-1.5, 1.5) }); // wolves run in pairs
+      if (t === 'wolf' && rnd() < (LV.floor === 2 ? 0.35 : 0.5)) LV.spawns.push({ type: 'wolf', x: w.x + rr(-1.5, 1.5), z: w.z + rr(-1.5, 1.5) }); // wolves run in pairs
     }
   }
-  if (LV.floor === 3 && (type === 'hall' || type === 'vault') && room.w >= 10 && room.h >= 10 && rnd() < 0.6) {
+  if (LV.floor >= 2 && LV.floor <= 3 && (type === 'hall' || type === 'vault') && room.w >= 10 && room.h >= 10 && rnd() < 0.6) {
     for (let i = 0; i < ri(1, 3); i++) { const p = randomFloorTileInRoom(room); if (isOpenArea(p.x, p.y)) addStructure(p.x, p.y); }
   }
 }
 
 export function generateLevel(seedVal, floor = 3) {
   srand(seedVal);
-  if (floor === 4) return generateRuins(seedVal);
-  const w = 78, h = 78;
+  if (floor === 1) generateVillage(seedVal);
+  else if (floor === 4) generateRuins(seedVal);
+  else generateWoods(seedVal, floor);
+  if (!LV.npcs) LV.npcs = [];
+  if (!LV.trails) LV.trails = [];
+  return LV;
+}
+// Floors II and III: the Gray Forest and the Deep Woods, both the 2D Crown's standard floor read as forest
+function generateWoods(seedVal, floor) {
+  const w = 78, h = 78, gray = floor === 2;
   LV = {
-    w, h, seed: seedVal, floor: 3, solid: false, name: 'THE DEEP WOODS', numeral: 'III', story: null, holeTiles: [],
+    w, h, seed: seedVal, floor, solid: false, name: gray ? 'THE GRAY FOREST' : 'THE DEEP WOODS', numeral: gray ? 'II' : 'III', story: null, holeTiles: [], npcs: [],
     tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
     rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null,
   };
-  const target = 14, rooms = [];
+  const target = gray ? 12 : 14, rooms = [];
   for (let att = 0; rooms.length < target && att < target * 14; att++) {
     const type = assignRoomType(rooms.length, target), dims = roomDimensions(type);
     const rx = ri(3, w - dims.w - 4), ry = ri(3, h - dims.h - 4);
@@ -200,7 +209,7 @@ export function generateLevel(seedVal, floor = 3) {
     if (!found) carveWindingCorridor(sp.x, sp.y, ep.x, ep.y);
   }
   // the bandit camp: one big clearing off the main path, with a campfire
-  const big = rooms.filter((r, i) => i > 1 && i < rooms.length - 1 && r.w >= 10 && r.h >= 10);
+  const big = gray ? [] : rooms.filter((r, i) => i > 1 && i < rooms.length - 1 && r.w >= 10 && r.h >= 10);
   const campRoom = big.length ? big[ri(0, big.length - 1)] : null;
   for (let i = 0; i < rooms.length; i++) populateRoom(rooms[i], i === 0, i === rooms.length - 1);
   if (campRoom) {
@@ -218,9 +227,130 @@ export function generateLevel(seedVal, floor = 3) {
   { const p = roomWalkableCenter(rooms[0]); for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1]]) if (isOpenArea(p.x + dx, p.y + dy)) { placeBrazier(p.x + dx, p.y + dy, true); break; } }
   // guarantee a cache somewhere in the middle of the floor
   { const mid = rooms.filter((_, i) => i > 1 && i < rooms.length - 1); if (mid.length) { const r = mid[ri(0, mid.length - 1)], p = randomFloorTileInRoom(r); placeSecret('fuel', p.x, p.y); } }
+  // the Gray Forest: a girl hiding in a clearing off the main path (the 2D Crown's second-to-last room)
+  if (gray && rooms.length > 3) {
+    const r = rooms[rooms.length - 2], c = roomWalkableCenter(r), g = at(c.x, c.y);
+    LV.npcs.push({ id: 'girl', x: g.x, z: g.z, face: 0 });
+    LV.spawns = LV.spawns.filter((q) => Math.hypot(q.x - g.x, q.z - g.z) > 9);
+    LV.decorations.push({ kind: 'log', x: g.x - 1.1, z: g.z - 0.9, yaw: rr(0, 6.28) });
+  }
   computeDepth();
+  computeTrails(rooms.map((r) => roomWalkableCenter(r)), true);
   return LV;
 }
+// =====================================================================
+//  TRAILS — the worn path through an outdoor floor. A cheapest-path search
+//  over the walkable tiles that prefers the middle of a trail (cost rises
+//  near the trees): the main trail runs from where you start to the way
+//  out, and a fainter branch leaves it for every clearing. World3d lays
+//  packed earth along them; the main one gets marker posts and cairns.
+// =====================================================================
+function trailCosts() {
+  const { w, h } = LV, wd = new Int16Array(w * h).fill(-1), q = [];
+  for (let i = 0; i < w * h; i++) if (LV.tiles[i] !== 1) { wd[i] = 0; q.push(i); }
+  for (let qi = 0; qi < q.length; qi++) { const c = q[qi], cx = c % w, cy = (c / w) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = cx + dx, ny = cy + dy; if (!inBounds(nx, ny)) continue; const n = idx(nx, ny); if (wd[n] < 0) { wd[n] = wd[c] + 1; q.push(n); } } }
+  return wd;
+}
+function dijkstra(sources, wd) {
+  const { w, h } = LV, dist = new Float64Array(w * h).fill(1e9), from = new Int32Array(w * h).fill(-1), heap = [];
+  const push = (d, i) => { heap.push([d, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  for (const i of sources) { dist[i] = 0; push(0, i); }
+  while (heap.length) {
+    const [d, c] = pop(); if (d > dist[c]) continue; const cx = c % w, cy = (c / w) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx, ny = cy + dy; if (!isWalkable(nx, ny)) continue; const n = idx(nx, ny), nd = d + 1 + 2.5 / (1 + wd[n]);
+      if (nd < dist[n]) { dist[n] = nd; from[n] = c; push(nd, n); }
+    }
+  }
+  return { dist, from };
+}
+const tileToWorld = (i) => [((i % LV.w) + 0.5) * TILE, (((i / LV.w) | 0) + 0.5) * TILE];
+function traceTo(from, i) { const out = []; for (let k = i; k >= 0; k = from[k]) out.push(k); return out; }
+// stops: tile points the trail should reach ({x, y}); the first is the start, the last the way out
+function computeTrails(stops, markers) {
+  const wd = trailCosts(), s0 = idx(toTile(LV.spawn.x), toTile(LV.spawn.z)), e0 = idx(toTile(LV.exit.x), toTile(LV.exit.z));
+  const a = dijkstra([s0], wd); if (a.dist[e0] >= 1e9) return;
+  const main = traceTo(a.from, e0).reverse(), onMain = new Set(main);
+  LV.trails = [{ main: true, pts: main.map(tileToWorld) }];
+  const b = dijkstra(main, wd), done = new Set();
+  for (const st of stops) {
+    const t = idx(st.x, st.y); if (!isWalkable(st.x, st.y) || onMain.has(t) || done.has(t) || b.dist[t] >= 1e9) continue;
+    const path = traceTo(b.from, t).reverse(); if (path.length < 3) continue; // starts on the main trail
+    done.add(t); LV.trails.push({ main: false, pts: path.map(tileToWorld) });
+  }
+  if (!markers) return;
+  // marker posts along the main trail (on its right-hand side, every ~20 m) and a cairn where a branch leaves it
+  let acc = 0;
+  for (let i = 3; i < main.length - 3; i++) {
+    acc += TILE; if (acc < 20) continue;
+    const [x0, z0] = tileToWorld(main[i - 1]), [x1, z1] = tileToWorld(main[i + 1]), dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz) || 1;
+    const [x, z] = tileToWorld(main[i]), px = x - (dz / L) * 1.5, pz = z + (dx / L) * 1.5;
+    if (!isWalkable(toTile(px), toTile(pz))) continue;
+    LV.decorations.push({ kind: 'post', x: px, z: pz, yaw: Math.atan2(dx, dz) }); acc = 0;
+  }
+  for (const tr of LV.trails) if (!tr.main) {
+    const [x, z] = tr.pts[1], [x2, z2] = tr.pts[0], ox = x + (x - x2) * 0.2 + 1.3, oz = z + (z - z2) * 0.2;
+    if (isWalkable(toTile(ox), toTile(oz)) && !LV.decorations.some((d) => Math.hypot(d.x - ox, d.z - oz) < 4)) LV.decorations.push({ kind: 'cairn', x: ox, z: oz, yaw: rr(0, 6.28), small: true });
+  }
+}
+
+// =====================================================================
+//  FLOOR I — ASH HOLLOW. The 2D Crown's village, tile for tile: a central
+//  square with the well and its fire, three houses off it, Farmer Ged's
+//  field to the south, and the eastern gate where Lyn keeps watch. No
+//  enemies; the lantern stays Steady and burns no oil here.
+// =====================================================================
+function generateVillage(seedVal) {
+  const w = 48, h = 48;
+  LV = {
+    w, h, seed: seedVal, floor: 1, solid: false, name: 'ASH HOLLOW', numeral: 'I', story: null, holeTiles: [], npcs: [],
+    tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
+    rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null, village: null,
+  };
+  carveRect(17, 17, 14, 14);                                              // the square
+  carveRect(10, 10, 6, 6); carveWindingCorridor(13, 16, 20, 20);         // NW house (the elder's)
+  carveRect(32, 10, 6, 6); carveWindingCorridor(35, 16, 28, 20);         // NE house
+  carveRect(10, 32, 6, 6); carveWindingCorridor(13, 32, 20, 28);         // SW house
+  carveRect(30, 34, 10, 8); carveWindingCorridor(33, 34, 28, 30);        // Ged's field
+  carveRect(34, 22, 10, 4); carveRect(30, 22, 5, 4);                      // the road to the eastern gate
+  const R = (x, y, rw, rh) => ({ x, y, w: rw, h: rh, roomType: 'hall', shape: 'rect' });
+  const square = R(17, 17, 14, 14), nw = R(10, 10, 6, 6), ne = R(32, 10, 6, 6), sw = R(10, 32, 6, 6), field = R(30, 34, 10, 8);
+  LV.rooms = [square, nw, ne, sw, field];
+  // the houses in the three yards (their back half is the house itself)
+  const houses = [];
+  const house = (x0, y0, tw, td, door) => { for (let y = y0; y < y0 + td; y++) for (let x = x0; x < x0 + tw; x++) setTile(x, y, 0); houses.push({ x: (x0 + tw / 2) * TILE, z: (y0 + td / 2) * TILE, w: tw * TILE, d: td * TILE, door, main: true }); };
+  house(10, 10, 4, 3, 2); house(33, 10, 4, 3, 2); house(10, 35, 4, 3, 3);
+  // more houses facing the square and the gate road, wherever there is a clean 4x3 lot of open ground
+  const lot = (x0, y0, tw, td, door) => {
+    for (let y = y0 - 1; y <= y0 + td; y++) for (let x = x0 - 1; x <= x0 + tw; x++) {
+      if (!inBounds(x, y)) return false;
+      const inLot = x >= x0 && x < x0 + tw && y >= y0 && y < y0 + td, front = (door === 2 && y === y0 + td) || (door === 3 && y === y0 - 1) || (door === 0 && x === x0 + tw) || (door === 1 && x === x0 - 1);
+      if ((inLot || !front) && tileAt(x, y) === 1) return false;
+    }
+    return !houses.some((o) => Math.abs(o.x - (x0 + tw / 2) * TILE) < (o.w + tw * TILE) / 2 + TILE && Math.abs(o.z - (y0 + td / 2) * TILE) < (o.d + td * TILE) / 2 + TILE);
+  };
+  const tryRow = (fixed, from, to, horiz, door) => { for (let k = from; k <= to; k++) { const [x0, y0, tw, td] = horiz ? [k, fixed, 4, 3] : [fixed, k, 3, 4]; if (lot(x0, y0, tw, td, door)) { houses.push({ x: (x0 + tw / 2) * TILE, z: (y0 + td / 2) * TILE, w: tw * TILE, d: td * TILE, door }); k += tw; } } };
+  tryRow(14, 17, 27, true, 2); tryRow(31, 17, 27, true, 3); tryRow(14, 17, 27, false, 0); tryRow(31, 26, 29, false, 1);
+  tryRow(19, 34, 40, true, 2); tryRow(26, 35, 40, true, 3);
+  // the well and its fire, Sev's stall, Ged's cart sunk in the field
+  LV.structures.push({ ...at(24, 23), r: 1.05, kind: 'vwell' });
+  placeBrazier(24, 26, true);
+  const stall = { x: 26.5 * TILE, z: 17.35 * TILE, r: 0.9, kind: 'stall' }; LV.structures.push(stall);
+  const cart = { ...at(36, 38), r: 1.15, kind: 'cart' }; LV.structures.push(cart);
+  LV.spawn = at(24, 28);
+  LV.exit = { ...at(43, 24), found: true, gate: true };
+  LV.npcs.push({ id: 'maren', ...at(22, 20), face: Math.atan2(24 - 20, 24 - 22) });
+  LV.npcs.push({ id: 'sev', ...at(26, 19), face: Math.PI / 2 });
+  LV.npcs.push({ id: 'lyn', ...at(38, 23), face: Math.PI });
+  LV.npcs.push({ id: 'ged', ...at(34, 38), face: 0 });
+  placePickup('health', 20, 24); placePickup('fuel', 28, 24);
+  LV.village = { houses, square, field, stall, cart, gate: { x: 44 * TILE, z0: 22 * TILE, z1: 26 * TILE } };
+  computeDepth();
+  computeTrails([roomWalkableCenter(nw), roomWalkableCenter(ne), roomWalkableCenter(sw), roomWalkableCenter(field), { x: 22, y: 21 }, { x: 26, y: 20 }], false);
+  return LV;
+}
+
 // =====================================================================
 //  FLOOR IV — THE EASTERN RUINS (OUTER). The 2D Crown's hand-built layout:
 //  an antechamber, a central hub, then a fork. West: the binding chamber

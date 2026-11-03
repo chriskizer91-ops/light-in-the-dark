@@ -21,7 +21,7 @@ export function initAudio() {
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 0.3;
   const lfo = ctx.createOscillator(); lfo.frequency.value = 0.06; const lfoG = ctx.createGain(); lfoG.gain.value = 160;
   lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start();
-  AU.wind = ctx.createGain(); AU.wind.gain.value = 0.1; w.connect(lp); lp.connect(AU.wind); AU.wind.connect(AU.master); w.start();
+  AU.wind = ctx.createGain(); AU.wind.gain.value = 0.04; w.connect(lp); lp.connect(AU.wind); AU.wind.connect(AU.master); w.start();
   // insects: they go quiet when something is close
   AU.bugs = ctx.createGain(); AU.bugs.gain.value = 0; AU.bugs.connect(AU.master);
   if (ctx.createConstantSource) { makeCricket(AU.bugs, 4300, 31, 2.1, 0, -0.5); makeCricket(AU.bugs, 4750, 27, 1.6, 0.4, 0.6); }
@@ -113,7 +113,7 @@ export const sfx = {
   drip(x, z) { const p = AU.ctx ? panner(x, 3, z) : null; if (!p) return; tone({ f0: rr(1100, 1500), f1: rr(500, 700), a: 0.002, peak: 0.12, dcy: 0.08, dest: p }); },
   merchant() { tone({ type: 'triangle', f0: 196, f1: 185, a: 0.05, peak: 0.06, dcy: 0.7 }); },
   crackle(b, v) { const p = at3(b, 1); if (!p) return; tone({ f0: 320 + Math.random() * 420, a: 0.003, peak: 0.08 * v, dcy: 0.03, dest: p }); },
-  ambient(x, z) { if (!AU.ctx) return; const a = Math.random() * 6.283, p = panner(x + Math.sin(a) * 40, 6, z + Math.cos(a) * 40); tone({ f0: 400, f1: 360, a: 0.05, peak: 0.22, dcy: 0.35, dest: p }); tone({ f0: 390, f1: 350, a: 0.05, peak: 0.22, dcy: 0.5, at: 0.5, dest: p }); },
+  ambient(x, z) { if (!AU.ctx) return; const a = Math.random() * 6.283, p = panner(x + Math.sin(a) * 40, 6, z + Math.cos(a) * 40); tone({ f0: 400, f1: 360, a: 0.05, peak: 0.1, dcy: 0.35, dest: p }); tone({ f0: 390, f1: 350, a: 0.05, peak: 0.1, dcy: 0.5, at: 0.5, dest: p }); },
 };
 
 export function updateAudio(dt, x, z, fwd, live, dangerNear, danger) {
@@ -125,10 +125,10 @@ export function updateAudio(dt, x, z, fwd, live, dangerNear, danger) {
   } else { L.setPosition(x, 1.62, z); L.setOrientation(fwd.x, fwd.y, fwd.z, 0, 1, 0); }
   const ruins = AU.floor === 4;
   // the woods: wind in the canopy, crickets that hush; the ruins: a low draught, water dripping somewhere, no insects
-  AU.wind.gain.setTargetAtTime(live ? (ruins ? 0.05 : 0.1) : 0.06, now, 0.5);
-  AU.bugs.gain.setTargetAtTime(ruins ? 0 : live ? clamp((dangerNear - 6) / 12, 0, 1) : 0.4, now, 0.4);
+  AU.wind.gain.setTargetAtTime(live ? (ruins ? 0.022 : 0.042) : 0.028, now, 0.5);
+  AU.bugs.gain.setTargetAtTime(ruins ? 0 : live ? 0.45 * clamp((dangerNear - 6) / 12, 0, 1) : 0.18, now, 0.4);
   if (ruins && live && now > (AU.nextDrip || 0)) { const a = Math.random() * 6.283, d = mr(6, 22); sfx.drip(x + Math.cos(a) * d, z + Math.sin(a) * d); AU.nextDrip = now + mr(0.8, 4.5); }
-  AU.drone.gain.setTargetAtTime(live ? 0.5 + danger * 0.8 : 0.3, now, 0.8);
+  AU.drone.gain.setTargetAtTime(live ? 0.2 + danger * 0.65 : 0.13, now, 0.8); // quieter bed; danger still swells it
   if (live && danger > 0.05 && now > AU.nextHeart) { sfx.heart(danger); AU.nextHeart = now + lerp(1.05, 0.42, danger); }
   if (live && now > AU.nextAmb) { if (ruins) sfx.grind({ x: x + mr(-40, 40), z: z + mr(-40, 40) }, 0.35); else sfx.ambient(x, z); AU.nextAmb = now + mr(16, 34); }
 }

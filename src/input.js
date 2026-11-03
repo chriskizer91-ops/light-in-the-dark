@@ -9,12 +9,13 @@ import { initAudio } from './audio.js';
 export const keys = {};
 const stick = { id: null, ox: 0, oy: 0, vx: 0, vy: 0 };
 const look = { id: null, x: 0, y: 0 };
-export const A = { slash() {}, dash() {}, flare() {}, pulse() {}, mode() {}, setMode() {}, use() {}, tricks() {}, pause() {}, resume() {} }; // filled by main
+export const A = { slash() {}, dash() {}, flare() {}, pulse() {}, mode() {}, setMode() {}, use() {}, tricks() {}, pause() {}, resume() {}, talkKey: null, talkAdvance: null }; // filled by main
 const playing = () => G.state === 'playing';
 
 addEventListener('keydown', (e) => {
   if (e.repeat) { if (e.code === 'Space') e.preventDefault(); return; }
   keys[e.code] = true;
+  if (G.talk && A.talkKey) { if (e.code !== 'Escape' && e.code !== 'KeyT') e.preventDefault(); A.talkKey(e.code); return; } // a conversation is open
   if (e.code === 'KeyT' && (playing() || G.state === 'menu')) A.tricks();
   if (!playing() || G.paused) return;
   if (e.code === 'Space') { e.preventDefault(); A.slash(); }
@@ -32,7 +33,7 @@ export function tryLock() {
   if (IS_TOUCH || document.pointerLockElement === canvas) return;
   try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* drag-to-look still works */ }
 }
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && playing() && !IS_TOUCH && !G.paused) A.pause(); });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && playing() && !IS_TOUCH && !G.paused && !G.talk) A.pause(); });
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== canvas || !playing() || G.paused) return;
   P.yaw -= e.movementX * 0.0022; P.pitch -= e.movementY * 0.0022;
@@ -41,6 +42,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerdown', (e) => {
   initAudio();
   if (!playing()) return;
+  if (G.talk && A.talkAdvance && e.pointerType === 'mouse' && document.pointerLockElement === canvas) { A.talkAdvance(); return; }
   if (e.pointerType === 'mouse') {
     if (document.pointerLockElement !== canvas) { tryLock(); if (G.paused) A.resume(); look.id = e.pointerId; look.x = e.clientX; look.y = e.clientY; return; }
     if (e.button === 0) A.slash(); else if (e.button === 2) A.flare();

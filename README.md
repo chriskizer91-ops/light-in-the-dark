@@ -1,15 +1,19 @@
-# The Hollow Crown: Lantern of the Deep — 3D first-person (Floors III–IV)
+# The Hollow Crown: Lantern of the Deep — 3D first-person (Floors I–IV)
 
 The Hollow Crown's rules (oil, the three lantern stances, slash / dash / flare / pulse, braziers, hidden caches, exposure) rebuilt as a first-person 3D game on the Eyeshine engine. The core idea comes from Eyeshine: **if the player can only see what the lantern touches, only draw that**, and spend the saved triangles on detail inside the beam.
 
-The Warden carries a **bullseye lantern**: one lens in front and a shutter. DIM, STEADY and BRIGHT are how far the shutter is open, so the lantern throws a single beam where you look and everything else stays dark.
+The Warden carries a **bullseye lantern**: one lens in front and a shutter. DIM, STEADY and BRIGHT are how far the shutter is open, so the lantern throws a single beam where you look and everything else stays dark. On the title screen (or in Tricks) you can switch to **the original lantern** instead: a ring of light all around you, with the 2D Crown's own radii (Dim about 8 m, Steady 11 m, Bright 15 m) and its falloff. There are three **difficulties** (Gentle, Standard, Harsh); the choice and the lantern are remembered.
 
-Two floors so far, played in order (or start at IV from the title screen):
+Four floors so far, played in order (or start at IV from the title screen):
 
+- **Floor I, Ash Hollow.** The village the run starts in, laid out as the 2D Crown's: the square with its well and fire, the houses, Farmer Ged's field, the eastern gate. Talk to Elder Maren (the Warden's Ring, rest), Sev (a shop: sword, chainmail, tonic, oil), Farmer Ged (pull his cart free for coins) and Lyn at the gate, who will come with you if you ask and follows you floor to floor. No enemies, no oil burned.
+- **Floor II, the Gray Forest.** The curse has drained the colour: everything is grey except where your light or a fire falls. Wolves and moths, and a lost girl hiding by a fallen log, who gives you her mother's charm.
 - **Floor III, the Deep Woods.** A generated forest of clearings and trails. Wolves, shade leeches, ember moths, a bandit camp.
 - **Floor IV, the Eastern Ruins (outer).** The 2D Crown's hand-built layout in stone: an antechamber with the Gray Merchant, a central hub, then a fork. West: Sera, Maren's daughter, chained as an anchor for the crown; light her braziers so she can speak, then strike the three chain anchors to free her (+8 max health, pulse costs less). East: the Ruin Guardian; kill it and three carved signs wake on the wall; hold the bright beam on them in the order of the murals (Crown, Light, Shadow) for the Crown Shard (+5 attack, brighter cuts, 5% less damage taken). Whichever wing you finish, the other collapses. Wax sentinels sleep until bright light or you wake them, and only crack under a pulse; gloom hounds circle in the dark when you go Bright, then come in from the side. Health and oil carry down from the woods (+28 health, +50 oil).
 
-Three.js r170, no other runtime dependencies. Everything (models, textures, audio) is generated in code, and the build is one self-contained HTML file.
+Worn trails run through the forest floors (marker posts along the main one, cairns where a side path leaves it), so you can see where the path goes.
+
+Three.js r170, no other runtime dependencies. Models, most textures and all audio are generated in code. The creatures and people that have reference sheets (the wax sentinel, Ruin Guardian, gloom hound, the villagers) are fitted to those sheets and textured by projecting the sheets' orthographic views onto them, and the Floor IV murals and carved signs are cut straight from theirs: `tools/` has the scripts (`seg.py`, `atlas.py`, `villagers.py`, `murals.py`, `profile.py`), and their output is in `src/assets/` (the sheets themselves are not in the repo). The build is one self-contained HTML file.
 
 ## Build
 
@@ -26,6 +30,9 @@ node build.mjs          # -> dist/hollow-crown-3d.html (open it in any browser)
 | `src/level.js` | The floor generators, ported from the 2D Crown: Floor III's rooms and winding corridors on a tile grid (1 tile = 2 m), and Floor IV's hand-built ruins layout with its two wings, the tiles each wing loses when it collapses, colonnades, statues, murals and plaques. Also tile collision, line of sight and A* pathfinding |
 | `src/world3d.js` | Builds each floor (the forest from the tiles, or the ruins via `ruins.js`), braziers, pickups and the stair down, and runs **the trick**: `updateCulling` (wall visibility first in the ruins, then grid-based beam culling, LOD swaps, shadow-proxy pool), `updateCover` (instanced ground cover in the beam), the brazier light pool |
 | `src/ruins.js` | **The Eastern Ruins.** Stone walls from the tile grid (one textured face per wall-floor boundary, merged per 8 m cell), flagstone floors, and in front of the walls, only close up and in the beam, individual carved blocks (instanced, 4 variants, aligned with the painted texture behind them). Fluted pillars and broken stumps, hooded court statues whose heads turn while you are not looking, vaulted arches over the doorways, murals, carved plaques, ruin ground cover, and `computeSeen`: ~160 rays through the tile grid each frame, so a room behind a wall is never drawn, however bright it is |
+| `src/village.js` | Ash Hollow's pieces: timber-framed houses with sagging thatch and lit windows, wattle fences, the well, Sev's stall, Ged's cart and field, the palisade and gate; the trail and cobble textures |
+| `src/npc.js` | The people: their bodies (from `rigs.js`), idle animation, the talk prompt, the conversation panel and the 2D Crown's dialogue, Sev's shop and coins, and Lyn as a companion who follows you |
+| `src/assets/` | Projection atlases and silhouette profiles cut from the reference sheets, the murals and plaques (built by `tools/`) |
 | `src/story.js` | Floor IV's fork: Sera (a rim-lit ghost, her chains and anchors), the Gray Merchant, the Guardian's plaque puzzle, and the collapse (which refuses to happen if it would seal you in) |
 | `src/creatures.js` | Wolves, shade leeches, ember moths, bandits, wax sentinels, the Ruin Guardian and gloom hounds: the Crown's AI in metres, exposure and damage, procedural animation (gaits, head tracking, snarls, hackles, rearing, wingbeats, sword work, the sentinel's slam, hit recoil, deaths), eyeshine |
 | `src/rigs.js` | **Creature models.** Detailed skinned rigs built in code: smooth lofted bodies and limbs on a skeleton with two-bone blends, so each creature is one mesh (3 draw calls: body, gloss, accent). Four quality tiers follow the DETAIL setting |
