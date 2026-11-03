@@ -78,17 +78,17 @@ const cone = (sides, r = 1, h = 1) => { const g = new THREE.ConeGeometry(r, h, s
 export class RigBuilder {
   constructor(def) {
     this.def = def; this.bi = {}; def.forEach((b, i) => (this.bi[b.name] = i));
-    this.slots = [0, 1, 2].map(() => ({ p: [], n: [], c: [], si: [], sw: [] }));
+    this.slots = [0, 1, 2].map(() => ({ p: [], n: [], c: [], si: [], sw: [], pin: [] }));
   }
   // bind: a bone name, or (x,y,z) => [bone, w, bone2, w2]. color: THREE.Color, [r,g,b], or (x,y,z,nx,ny,nz) => colour
   add(geo, bind, color, o = {}) {
     let g = geo.clone();
     if (o.flat) { if (g.index) g = g.toNonIndexed(); if (o.matrix) g.applyMatrix4(o.matrix); g.computeVertexNormals(); }
     else { g.computeVertexNormals(); if (o.matrix) g.applyMatrix4(o.matrix); if (g.index) g = g.toNonIndexed(); }
-    const P = g.attributes.position, N = g.attributes.normal, S = this.slots[o.slot || 0];
+    const P = g.attributes.position, N = g.attributes.normal, S = this.slots[o.slot || 0]; if (o.pin) this.pinned = true;
     for (let i = 0; i < P.count; i++) {
       const x = P.getX(i), y = P.getY(i), z = P.getZ(i), nx = N.getX(i), ny = N.getY(i), nz = N.getZ(i);
-      S.p.push(x, y, z); S.n.push(nx, ny, nz);
+      S.p.push(x, y, z); S.n.push(nx, ny, nz); if (o.pin) S.pin.push(o.pin.x, o.pin.y, o.pin.z); else S.pin.push(x, y, z);
       let c = typeof color === 'function' ? color(x, y, z, nx, ny, nz) : color;
       if (c.isColor) S.c.push(c.r, c.g, c.b); else S.c.push(c[0], c[1], c[2]);
       const b = typeof bind === 'function' ? bind(x, y, z) : [bind, 1];
@@ -97,7 +97,7 @@ export class RigBuilder {
     g.dispose();
   }
   build() {
-    const A = { p: [], n: [], c: [], si: [], sw: [] }, g = new THREE.BufferGeometry(); let start = 0;
+    const A = { p: [], n: [], c: [], si: [], sw: [], pin: [] }, g = new THREE.BufferGeometry(); let start = 0;
     this.slots.forEach((s, k) => {
       const cnt = s.p.length / 3; if (!cnt) return;
       for (const key in A) A[key] = A[key].concat(s[key]);
@@ -106,6 +106,7 @@ export class RigBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(A.p, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(A.n, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(A.c, 3));
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(A.si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(A.sw, 4));
+    if (this.pinned) g.setAttribute('pin', new THREE.Float32BufferAttribute(A.pin, 3)); // where fur takes its colour from (projectUV)
     g.computeBoundingSphere(); g.userData.keep = true; g.userData.tris = start / 3;
     return g;
   }
@@ -118,13 +119,16 @@ export class RigBuilder {
 // the right does not (the guardian's shield), where it falls back to the front or back view.
 const VIEW = { front: (x, y, z) => [x, -y], back: (x, y, z) => [-x, -y], side: (x, y, z) => [-z, -y], sideFlip: (x, y, z) => [z, -y], top: (x, y, z) => [x, z] };
 export function projectUV(geo, atlas, extra = [], o = {}) {
-  const P = geo.attributes.position, N = geo.attributes.normal, n = P.count, names = Object.keys(atlas.views).filter((v) => VIEW[v]), ext = {};
+  // a tuft of fur is 'pinned' to its root: the whole blade takes the colour of the coat it grows from,
+  // and its tip, standing off the body, neither samples past the silhouette nor stretches the mapping
+  const P = geo.attributes.pin || geo.attributes.position, N = geo.attributes.normal, n = P.count, names = Object.keys(atlas.views).filter((v) => VIEW[v]), ext = {};
   const VF = (v) => (v === 'side' && atlas.sideFlip ? VIEW.sideFlip : VIEW[v]); // some sheets draw the profile facing right
   for (const v of names) {
     const e = (ext[v] = [1e9, -1e9, 1e9, -1e9]), f = VF(v);
     const grow = (x, y, z) => { const [h, d] = f(x, y, z); e[0] = Math.min(e[0], h); e[1] = Math.max(e[1], h); e[2] = Math.min(e[2], d); e[3] = Math.max(e[3], d); };
     for (let i = 0; i < n; i++) grow(P.getX(i), P.getY(i), P.getZ(i));
     for (const p of extra) grow(p[0], p[1], p[2]);
+    if (o.ext && o.ext[v]) o.ext[v].forEach((val, i) => { if (val != null) e[i] = val; }); // a view drawn in another pose than the model (the wolf's tail)
   }
   const map = (view, i, out, j) => {
     const R = atlas.views[view], e = ext[view], [h, d] = VF(view)(P.getX(i), P.getY(i), P.getZ(i));
@@ -136,7 +140,7 @@ export function projectUV(geo, atlas, extra = [], o = {}) {
   const hasS = !!ext.side, hasT = !!ext.top, hasF = !!ext.front, hasB = !!ext.back, pw = o.blend ?? 4;
   const g0 = geo.groups.find((g) => g.materialIndex === 0), a = new V3(), b = new V3(), c = new V3(), nr = new V3(), cen = new V3(), w = {};
   for (let t = g0.start; t < g0.start + g0.count; t += 3) {
-    a.fromBufferAttribute(P, t); b.fromBufferAttribute(P, t + 1); c.fromBufferAttribute(P, t + 2);
+    a.fromBufferAttribute(geo.attributes.position, t); b.fromBufferAttribute(geo.attributes.position, t + 1); c.fromBufferAttribute(geo.attributes.position, t + 2);
     nr.subVectors(c, b).cross(_s3.subVectors(a, b)).normalize(); cen.copy(a).add(b).add(c).multiplyScalar(1 / 3);
     const noSide = nr.x < 0 && o.mirrorSkip && o.mirrorSkip(cen.x, cen.y, cen.z);
     w.front = nr.z; w.back = -nr.z; w.top = nr.y; w.side = noSide ? -9 : Math.abs(nr.x) * (o.sideBias || 1);
@@ -202,98 +206,112 @@ const Q = (q, arr) => arr[q];
 
 // Every rig returns { def, geo, eyes:{bone, pos(model space), pair}, glint, glow, accent:'glow'|'steel'|null, height, roughness, side }
 // =====================================================================
-//  WOLF — a starving grey wolf. Raised hackles, a jaw that opens, a tail.
+//  WOLF (CR01) — a starving grey wolf, 1.08 m to the ear tips and 1.38 m
+//  nose to tail. Measured off its sheet (z = 0.8 - distance from the nose):
+//  a thick ruff, a deep chest over a tucked waist, haunches, and a bushy tail
+//  hanging straight down behind them. Raised hackles, a jaw that opens.
+//  Then the sheet is projected on: the coat, the eyes and the dark saddle.
 // =====================================================================
 function wolf(q) {
   srand(1001 + q);
   const def = bones([
-    ['root', null, 0, 0, 0], ['pelvis', 'root', 0, 0.7, -0.42], ['spine', 'pelvis', 0, 0.74, -0.05], ['chest', 'spine', 0, 0.77, 0.3],
-    ['hackles', 'spine', 0, 0.9, 0.05], ['neck', 'chest', 0, 0.88, 0.48], ['head', 'neck', 0, 1.0, 0.66], ['jaw', 'head', 0, 0.955, 0.74],
-    ['earL', 'head', 0.065, 1.1, 0.66], ['earR', 'head', -0.065, 1.1, 0.66],
-    ['FLu', 'chest', 0.11, 0.7, 0.34], ['FLl', 'FLu', 0.12, 0.4, 0.36], ['FLf', 'FLl', 0.12, 0.08, 0.37],
-    ['FRu', 'chest', -0.11, 0.7, 0.34], ['FRl', 'FRu', -0.12, 0.4, 0.36], ['FRf', 'FRl', -0.12, 0.08, 0.37],
-    ['HLu', 'pelvis', 0.12, 0.7, -0.44], ['HLl', 'HLu', 0.13, 0.46, -0.36], ['HLf', 'HLl', 0.13, 0.2, -0.5],
-    ['HRu', 'pelvis', -0.12, 0.7, -0.44], ['HRl', 'HRu', -0.13, 0.46, -0.36], ['HRf', 'HRl', -0.13, 0.2, -0.5],
-    ['tail1', 'pelvis', 0, 0.76, -0.6], ['tail2', 'tail1', 0, 0.68, -0.8], ['tail3', 'tail2', 0, 0.57, -0.96],
+    ['root', null, 0, 0, 0], ['pelvis', 'root', 0, 0.7, -0.28], ['spine', 'pelvis', 0, 0.72, 0], ['chest', 'spine', 0, 0.72, 0.28],
+    ['hackles', 'spine', 0, 0.88, 0.12], ['neck', 'chest', 0, 0.8, 0.44], ['head', 'neck', 0, 0.87, 0.6], ['jaw', 'head', 0, 0.775, 0.67],
+    ['earL', 'head', 0.055, 0.97, 0.6], ['earR', 'head', -0.055, 0.97, 0.6],
+    // the near (left) foreleg a stride ahead of the far one, the near hind leg a little behind, as drawn
+    ['FLu', 'chest', 0.08, 0.72, 0.3], ['FLl', 'FLu', 0.08, 0.45, 0.28], ['FLf', 'FLl', 0.073, 0.11, 0.295],
+    ['FRu', 'chest', -0.08, 0.72, 0.28], ['FRl', 'FRu', -0.08, 0.45, 0.23], ['FRf', 'FRl', -0.073, 0.11, 0.245],
+    ['HLu', 'pelvis', 0.1, 0.74, -0.31], ['HLl', 'HLu', 0.102, 0.44, -0.24], ['HLf', 'HLl', 0.1, 0.2, -0.43],
+    ['HRu', 'pelvis', -0.1, 0.74, -0.31], ['HRl', 'HRu', -0.102, 0.44, -0.21], ['HRf', 'HRl', -0.1, 0.2, -0.39],
+    ['tail1', 'pelvis', 0, 0.73, -0.36], ['tail2', 'tail1', 0, 0.6, -0.45], ['tail3', 'tail2', 0, 0.4, -0.5],
   ]);
-  const B = new RigBuilder(def), radial = Q(q, [8, 14, 20, 28]), rings = Q(q, [8, 16, 24, 34]), tuftSides = q >= 2 ? 5 : 4;
-  const back = C(0x1e1a17), side = C(0x3c352f), belly = C(0x5c544a), muzzleC = C(0x645a4e), dark = C(0x141210), inner = C(0x4a3430);
-  const fur = (k = 1) => (x, y, z) => { const t = clamp((y - 0.5) / 0.45, 0, 1), c = t < 0.5 ? mixc(belly, side, t * 2) : mixc(side, back, (t - 0.5) * 2), n = 0.82 + 0.36 * noise(x * 13, y * 13, z * 13); return shade(c, n * k); };
+  const B = new RigBuilder(def), radial = Q(q, [8, 14, 20, 26]), rings = Q(q, [8, 16, 24, 32]), tuftSides = q >= 2 ? 5 : 4;
+  // fallback colours only (the coat comes from the sheet): a dark saddle over buff flanks and a pale belly
+  const back = C(0x1e1a17), side = C(0x5a5046), belly = C(0x9a8c78), muzzleC = C(0x8a7e6e), dark = C(0x141210), inner = C(0x4a3430);
+  const fur = (k = 1) => (x, y, z) => { const t = clamp((y - 0.5) / 0.4, 0, 1), c = t < 0.5 ? mixc(belly, side, t * 2) : mixc(side, back, (t - 0.5) * 2), n = 0.82 + 0.36 * noise(x * 13, y * 13, z * 13); return shade(c, n * k); };
   const shag = (amp, f = 1) => (a, t) => 1 + amp * nz3(Math.cos(a) * 3 * f, t * 14 * f, Math.sin(a) * 3 * f);
-  // torso: deep chest, tucked waist, bony hips
-  const torso = [{ p: [0, 0.7, -0.66], r: [0.09, 0.11] }, { p: [0, 0.72, -0.47], r: [0.15, 0.18] }, { p: [0, 0.71, -0.2], r: [0.13, 0.155] },
-    { p: [0, 0.74, 0.08], r: [0.155, 0.21] }, { p: [0, 0.77, 0.3], r: [0.165, 0.245] }, { p: [0, 0.81, 0.45], r: [0.13, 0.18] }];
-  const bodyBind = (x, y, z) => along1([[-0.42, 'pelvis'], [-0.05, 'spine'], [0.3, 'chest']])(z);
-  B.add(loft(torso, { radial, rings, shape: (a, t) => shag(0.05)(a, t) * (Math.sin(a) < 0 ? 1 - 0.16 * -Math.sin(a) * Math.exp(-(((t - 0.42) / 0.16) ** 2)) : 1) }), bodyBind, fur());
-  // neck + ruff
-  const neckC = [{ p: [0, 0.8, 0.36], r: [0.135, 0.17] }, { p: [0, 0.9, 0.52], r: [0.115, 0.135] }, { p: [0, 0.99, 0.64], r: [0.09, 0.1] }];
-  const neckBind = (x, y, z) => along1([[0.38, 'chest'], [0.5, 'neck'], [0.64, 'head']])(z);
-  B.add(loft(neckC, { radial, rings: Math.max(4, rings >> 1), shape: shag(0.07) }), neckBind, fur(0.95));
-  const tuft = (s, dir, len, r, bind, colr, slot = 0) => B.add(cone(tuftSides, r, len), bind, colr, { flat: true, matrix: along(s, dir), slot });
-  const furTufts = (ctrl, n, bind, k, tMin, tMax, back0 = -1, lenK = 1) => {
+  // torso: a deep chest (0.47–0.93 m), the waist tucked up to 0.54, the hips, the rump
+  const torso = [{ p: [0, 0.79, 0.43], r: [0.115, 0.15] }, { p: [0, 0.705, 0.33], r: [0.14, 0.225] }, { p: [0, 0.67, 0.2], r: [0.145, 0.21] }, { p: [0, 0.665, 0.08], r: [0.135, 0.195] },
+    { p: [0, 0.675, -0.04], r: [0.115, 0.165] }, { p: [0, 0.68, -0.14], r: [0.108, 0.14] }, { p: [0, 0.665, -0.26], r: [0.12, 0.15] }, { p: [0, 0.665, -0.37], r: [0.1, 0.11] }, { p: [0, 0.67, -0.43], r: [0.05, 0.055] }];
+  const bodyBind = (x, y, z) => along1([[-0.28, 'pelvis'], [0, 'spine'], [0.28, 'chest']])(z);
+  B.add(loft(torso, { radial: radial + 4, rings: rings + 4, shape: shag(0.035) }), bodyBind, fur());
+  // neck: thick with the ruff, carried low and forward
+  const neckC = [{ p: [0, 0.77, 0.38], r: [0.125, 0.17] }, { p: [0, 0.79, 0.48], r: [0.12, 0.17] }, { p: [0, 0.83, 0.55], r: [0.11, 0.15] }, { p: [0, 0.87, 0.64], r: [0.065, 0.075] }];
+  const neckBind = (x, y, z) => along1([[0.4, 'chest'], [0.47, 'neck'], [0.6, 'head']])(z);
+  B.add(loft(neckC, { radial, rings: Math.max(5, rings >> 1), shape: shag(0.06) }), neckBind, fur(0.95));
+  const tuft = (s, dir, len, r, bind, colr, slot = 0) => B.add(cone(tuftSides, r, len), bind, colr, { flat: true, matrix: along(s, dir), slot, pin: slot ? null : s });
+  const furTufts = (ctrl, n, bind, tMin, tMax, aMin, aMax, drift, lenK = 1, ref = [0, 1, 0]) => {
     for (let i = 0; i < n; i++) {
-      const t = rr(tMin, tMax), a = rr(-0.4, Math.PI + 0.4), s = loftSurface(ctrl, t, a, [0, 1, 0], 0.92);
-      // fur lies down along the body: a flattened blade, mostly pointing back, coloured like the coat under it
-      const dir = s.n.clone().multiplyScalar(0.28).add(new V3(0, -0.1, back0)).normalize(), fc = fur(0.8 + 0.35 * rnd())(s.p.x, s.p.y, s.p.z);
-      B.add(cone(tuftSides, rr(0.02, 0.03), rr(0.07, 0.12) * lenK), bind, fc, { flat: true, matrix: along(s.p, dir, 1, 1, 0.35, Math.atan2(s.n.x, s.n.z)) });
+      const t = rr(tMin, tMax), a = rr(aMin, aMax), s = loftSurface(ctrl, t, a, ref, 0.9);
+      // fur lies down along the body: a flattened blade, pointing back (or down), coloured like the coat under it
+      const dir = s.n.clone().multiplyScalar(0.2).add(drift).normalize(), fc = fur(0.8 + 0.35 * rnd())(s.p.x, s.p.y, s.p.z);
+      B.add(cone(tuftSides, rr(0.014, 0.022), rr(0.04, 0.065) * lenK), bind, fc, { flat: true, matrix: along(s.p, dir, 1, 1, 0.35, Math.atan2(s.n.x, s.n.z)), pin: s.p });
     }
   };
-  furTufts(neckC, Q(q, [8, 22, 40, 64]), neckBind, 1, 0.05, 0.9, -1, 1.25);
-  furTufts(torso, Q(q, [0, 26, 60, 120]), bodyBind, 1, 0.08, 0.92);
-  // hackles along the spine: raised by scaling their bone when the wolf means it
-  for (let i = 0, n = Q(q, [4, 12, 18, 28]); i < n; i++) {
-    const t = lerp(0.3, 0.88, i / (n - 1)) + rr(-0.02, 0.02), s = loftSurface(torso, t, Math.PI / 2 + rr(-0.35, 0.35), [0, 1, 0], 0.95);
-    tuft(s.p, new V3(rr(-0.15, 0.15), 1, -0.75).normalize(), rr(0.07, 0.12), 0.02, 'hackles', shade(back, 0.75 + 0.2 * rnd()));
+  furTufts(neckC, Q(q, [6, 18, 34, 54]), neckBind, 0.05, 0.85, -0.3, Math.PI + 0.3, new V3(0, -0.15, -1), 1.1);
+  furTufts(torso, Q(q, [0, 20, 44, 90]), bodyBind, 0.12, 0.88, -0.2, Math.PI + 0.2, new V3(0, -0.1, -1));
+  // the shaggy fringe that hangs off the chest and belly
+  furTufts(torso, Q(q, [2, 8, 14, 22]), bodyBind, 0.12, 0.55, -Math.PI / 2 - 0.8, -Math.PI / 2 + 0.8, new V3(0, -0.7, -1), 0.6);
+  // hackles from the crown of the neck down the back: raised by scaling their bone when the wolf means it
+  for (let i = 0, n = Q(q, [6, 18, 32, 48]); i < n; i++) {
+    const k = i / (n - 1), onNeck = k < 0.4, s = onNeck ? loftSurface(neckC, 1 - k / 0.4 * 0.85, Math.PI / 2 + rr(-0.35, 0.35), [0, 1, 0], 0.95) : loftSurface(torso, lerp(0.02, 0.5, (k - 0.4) / 0.6), Math.PI / 2 + rr(-0.35, 0.35), [0, 1, 0], 0.95);
+    tuft(s.p, new V3(rr(-0.2, 0.2), 1, -1.3).normalize(), rr(0.035, 0.065) * (1 - 0.5 * k), 0.011, 'hackles', shade(back, 0.75 + 0.2 * rnd()));
   }
   // head: skull, muzzle, nose, brows, eyes, teeth, ears, cheek ruff
   const d = Q(q, [1, 2, 3, 3]);
-  const headCol = (x, y, z) => { if (z > 0.74 && y < 1.035) return shade(muzzleC, 0.85 + 0.25 * noise(x * 20, y * 20, z * 20)); if (y > 1.06 && z > 0.72) return shade(dark, 1.4); return fur(1)(x, y + 0.08, z); };
-  B.add(blob(d, (x, y, z) => [x * (1 + 0.12 * (z < 0 ? 1 : 0)), y * (y > 0 ? 0.82 : 1), z]), 'head', headCol, { matrix: M(0, 1.03, 0.7, 0, 0, 0, 0.115, 0.105, 0.14) });
-  B.add(loft([{ p: [0, 1.0, 0.74], r: [0.07, 0.065] }, { p: [0, 0.99, 0.85], r: [0.05, 0.047] }, { p: [0, 0.977, 0.93], r: [0.034, 0.034] }], { radial, rings: Math.max(4, rings >> 1) }), 'head', headCol);
-  for (const sx of [-1, 1]) B.add(blob(1), 'head', shade(back, 0.9), { matrix: M(sx * 0.05, 1.075, 0.775, 0, 0, sx * 0.3, 0.035, 0.016, 0.04) }); // brows
-  B.add(blob(Q(q, [1, 1, 2, 2])), 'head', C(0x0c0a0a), { slot: 1, matrix: M(0, 0.988, 0.952, 0, 0, 0, 0.026, 0.021, 0.02) });   // nose
-  const eyeC = (x, y, z, nx, ny, nz) => (nz > 0.6 ? [0.32, 0.18, 0.04] : [0.03, 0.02, 0.02]);
-  for (const sx of [-1, 1]) B.add(blob(Q(q, [1, 1, 2, 2])), 'head', eyeC, { slot: 1, matrix: M(sx * 0.052, 1.045, 0.79, 0, sx * 0.35, 0, 0.018, 0.016, 0.016) });
+  const headCol = (x, y, z) => (z > 0.7 && y < 0.86 ? shade(muzzleC, 0.85 + 0.25 * noise(x * 20, y * 20, z * 20)) : fur(1)(x, y - 0.1, z));
+  B.add(blob(d, (x, y, z) => [x * (1 - 0.3 * Math.max(0, z)), y * (y > 0 ? 0.86 - 0.25 * Math.max(0, z) : 1), z]), 'head', headCol, { matrix: M(0, 0.875, 0.628, 0, 0, 0, 0.085, 0.1, 0.095) });
+  B.add(loft([{ p: [0, 0.85, 0.68], r: [0.062, 0.06] }, { p: [0, 0.82, 0.73], r: [0.05, 0.05] }, { p: [0, 0.8, 0.77], r: [0.036, 0.034] }, { p: [0, 0.79, 0.79], r: [0.024, 0.022] }], { radial, rings: Math.max(4, rings >> 1) }), 'head', headCol);
+  B.add(blob(Q(q, [1, 1, 2, 2])), 'head', C(0x0c0a0a), { slot: 1, matrix: M(0, 0.79, 0.787, 0, 0, 0, 0.022, 0.017, 0.016) });   // nose
+  const eyeC = (x, y, z, nx, ny, nz) => (nz > 0.3 ? [0.16, 0.09, 0.02] : [0.03, 0.02, 0.02]);
+  for (const sx of [-1, 1]) B.add(blob(Q(q, [1, 1, 2, 2])), 'head', eyeC, { slot: 1, matrix: M(sx * 0.058, 0.889, 0.678, 0, sx * 0.6, 0, 0.01, 0.0085, 0.009) });
   const ivory = C(0xd8ceb8);
   for (const sx of [-1, 1]) {
-    tuft(new V3(sx * 0.024, 0.975, 0.925), new V3(0, -1, 0.15), 0.04, 0.007, 'head', ivory, 1);  // upper canines
-    for (let i = 0; i < Q(q, [1, 3, 5, 7]); i++) tuft(new V3(sx * (0.03 + i * 0.004), 0.972, 0.9 - i * 0.022), new V3(0, -1, 0), 0.016, 0.005, 'head', ivory, 1);
-    tuft(new V3(sx * 0.02, 0.95, 0.905), new V3(0, 1, 0.1), 0.032, 0.006, 'jaw', ivory, 1);      // lower canines
+    // the mouth is shut at rest (the canines' tips sit inside the other jaw); they show when it opens
+    tuft(new V3(sx * 0.019, 0.775, 0.765), new V3(0, -1, 0.1), 0.02, 0.0055, 'head', ivory, 1);  // upper canines
+    for (let i = 0; i < Q(q, [0, 2, 4, 5]); i++) tuft(new V3(sx * (0.022 + i * 0.003), 0.788, 0.745 - i * 0.02), new V3(0, -1, 0), 0.014, 0.004, 'head', ivory, 1);
+    tuft(new V3(sx * 0.016, 0.752, 0.752), new V3(0, 1, 0.1), 0.016, 0.005, 'jaw', ivory, 1);      // lower canines
   }
-  B.add(loft([{ p: [0, 0.955, 0.74], r: [0.05, 0.022] }, { p: [0, 0.949, 0.86], r: [0.038, 0.018] }, { p: [0, 0.946, 0.925], r: [0.025, 0.013] }], { radial, rings: 6 }), 'jaw', shade(muzzleC, 0.85));
-  B.add(blob(1), 'jaw', C(0x6a3a3a), { matrix: M(0, 0.957, 0.83, 0, 0, 0, 0.026, 0.008, 0.07) }); // tongue
+  B.add(loft([{ p: [0, 0.775, 0.65], r: [0.048, 0.022] }, { p: [0, 0.766, 0.72], r: [0.038, 0.018] }, { p: [0, 0.762, 0.767], r: [0.026, 0.012] }], { radial, rings: 6 }), 'jaw', shade(muzzleC, 0.85));
+  B.add(blob(1), 'jaw', C(0x6a3a3a), { matrix: M(0, 0.768, 0.72, 0, 0, 0, 0.022, 0.007, 0.05) }); // tongue
   for (const [sx, bone] of [[1, 'earL'], [-1, 'earR']]) {
-    const ear = cone(Q(q, [3, 4, 6, 8]), 0.042, 0.115);
-    B.add(ear, bone, (x, y, z, nx, ny, nz) => (nz > 0.2 ? shade(inner, 0.8) : shade(back, 0.9)), { flat: q < 2, matrix: M(sx * 0.065, 1.08, 0.66, -0.15, 0, -sx * 0.28, 1, 1, 0.5) });
+    const ear = cone(Q(q, [3, 4, 6, 8]), 0.044, 0.105);
+    B.add(ear, bone, (x, y, z, nx, ny, nz) => (nz > 0.2 ? shade(inner, 0.8) : shade(back, 0.9)), { flat: q < 2, matrix: M(sx * 0.055, 0.962, 0.6, 0.05, 0, -sx * 0.2, 1, 1, 0.72) });
   }
-  for (let i = 0; i < Q(q, [2, 8, 14, 22]); i++) { const sx = i % 2 ? 1 : -1, y = rr(0.97, 1.06), z = rr(0.6, 0.72); tuft(new V3(sx * 0.1, y, z), new V3(sx * 0.6, -0.2, -0.8).normalize(), rr(0.05, 0.09), 0.018, 'head', shade(side, 0.9 + 0.2 * rnd())); }
-  // legs
-  const legCol = (x, y, z) => shade(mixc(belly, side, 0.45 + clamp((y - 0.1) / 0.6, 0, 1) * 0.55), 0.8 + 0.3 * noise(x * 15, y * 15, z * 15));
+  // the ruff around the cheeks and throat
+  for (let i = 0; i < Q(q, [0, 4, 8, 12]); i++) { const sx = i % 2 ? 1 : -1, y = rr(0.76, 0.84), z = rr(0.55, 0.6); tuft(new V3(sx * 0.07, y, z), new V3(sx * 0.5, -0.4, -0.8).normalize(), rr(0.04, 0.06), 0.02, 'head', shade(side, 0.9 + 0.2 * rnd())); }
+  // legs: long and lean, buff below the elbow, big splayed paws
+  const legCol = (x, y, z) => shade(mixc(belly, side, 0.3 + clamp((y - 0.1) / 0.6, 0, 1) * 0.5), 0.8 + 0.3 * noise(x * 15, y * 15, z * 15));
   const lr = Math.max(6, radial - 4), lrings = Math.max(4, rings >> 1);
   const paw = (x, z, bone) => {
-    B.add(blob(Q(q, [1, 1, 2, 2])), bone, shade(belly, 0.75), { matrix: M(x, 0.035, z + 0.025, 0, 0, 0, 0.044, 0.03, 0.058) });
+    B.add(blob(Q(q, [1, 1, 2, 2])), bone, shade(belly, 0.75), { matrix: M(x, 0.03, z + 0.03, 0, 0, 0, 0.04, 0.03, 0.058) });
     for (let i = 0; i < 4; i++) {
-      const ox = (i - 1.5) * 0.019;
-      if (q > 0) B.add(blob(1), bone, shade(belly, 0.7), { matrix: M(x + ox, 0.024, z + 0.07, 0, 0, 0, 0.012, 0.014, 0.016) });
-      tuft(new V3(x + ox, 0.018, z + 0.084), new V3(0, -0.4, 1).normalize(), 0.018, 0.0045, bone, C(0x1a1612), 1);
+      const ox = (i - 1.5) * 0.018;
+      if (q > 0) B.add(blob(1), bone, shade(belly, 0.7), { matrix: M(x + ox * 1.2, 0.022, z + 0.075 - Math.abs(ox) * 0.6, 0, 0, 0, 0.012, 0.013, 0.016) });
+      tuft(new V3(x + ox * 1.2, 0.016, z + 0.088 - Math.abs(ox) * 0.6), new V3(0, -0.4, 1).normalize(), 0.016, 0.0045, bone, C(0x1a1612), 1);
     }
   };
   for (const sx of [1, -1]) {
-    const F = sx > 0 ? 'FL' : 'FR', Hh = sx > 0 ? 'HL' : 'HR';
-    B.add(loft([{ p: [sx * 0.11, 0.73, 0.33], r: [0.07, 0.085] }, { p: [sx * 0.115, 0.55, 0.35], r: [0.055, 0.06] }, { p: [sx * 0.12, 0.4, 0.36], r: [0.04, 0.045] }], { radial: lr, rings: lrings, ref: [0, 0, 1], shape: shag(0.05) }), F + 'u', legCol);
-    B.add(loft([{ p: [sx * 0.12, 0.41, 0.36], r: [0.038, 0.04] }, { p: [sx * 0.12, 0.22, 0.365], r: [0.03, 0.032] }, { p: [sx * 0.12, 0.07, 0.37], r: [0.026, 0.028] }], { radial: lr, rings: lrings, ref: [0, 0, 1] }), F + 'l', legCol);
-    paw(sx * 0.12, 0.37, F + 'f');
-    B.add(loft([{ p: [sx * 0.12, 0.76, -0.42], r: [0.085, 0.13] }, { p: [sx * 0.125, 0.6, -0.38], r: [0.07, 0.09] }, { p: [sx * 0.13, 0.46, -0.36], r: [0.045, 0.05] }], { radial: lr, rings: lrings, ref: [0, 0, 1], shape: shag(0.05) }), Hh + 'u', legCol);
-    B.add(loft([{ p: [sx * 0.13, 0.47, -0.36], r: [0.04, 0.045] }, { p: [sx * 0.13, 0.33, -0.43], r: [0.032, 0.035] }, { p: [sx * 0.13, 0.2, -0.5], r: [0.028, 0.03] }], { radial: lr, rings: lrings, ref: [0, 0, 1] }), Hh + 'l', legCol);
-    B.add(loft([{ p: [sx * 0.13, 0.21, -0.5], r: [0.027, 0.029] }, { p: [sx * 0.13, 0.06, -0.46], r: [0.024, 0.026] }], { radial: lr, rings: 4, ref: [0, 0, 1] }), Hh + 'f', legCol);
-    paw(sx * 0.13, -0.47, Hh + 'f');
+    const F = sx > 0 ? 'FL' : 'FR', Hh = sx > 0 ? 'HL' : 'HR', fz = sx * 0.025, hz = -sx * 0.02;
+    B.add(loft([{ p: [sx * 0.07, 0.74, 0.31], r: [0.04, 0.08] }, { p: [sx * 0.085, 0.6, 0.28 + fz * 0.5], r: [0.05, 0.07] }, { p: [sx * 0.08, 0.45, 0.255 + fz], r: [0.04, 0.052] }], { radial: lr, rings: lrings, ref: [0, 0, 1], shape: shag(0.05) }), F + 'u', legCol);
+    B.add(loft([{ p: [sx * 0.08, 0.46, 0.255 + fz], r: [0.035, 0.045] }, { p: [sx * 0.076, 0.27, 0.265 + fz], r: [0.03, 0.038] }, { p: [sx * 0.073, 0.11, 0.27 + fz], r: [0.026, 0.032] }], { radial: lr, rings: lrings, ref: [0, 0, 1], shape: shag(0.04) }), F + 'l', legCol);
+    B.add(loft([{ p: [sx * 0.073, 0.12, 0.27 + fz], r: [0.026, 0.032] }, { p: [sx * 0.074, 0.04, 0.29 + fz], r: [0.026, 0.032] }], { radial: lr, rings: 4, ref: [0, 0, 1] }), F + 'f', legCol);
+    paw(sx * 0.075, 0.295 + fz, F + 'f');
+    // the hind leg: a heavy haunch, the stifle forward, a long shank back to the hock, then straight down
+    B.add(loft([{ p: [sx * 0.055, 0.76, -0.31], r: [0.035, 0.08] }, { p: [sx * 0.09, 0.64, -0.3], r: [0.058, 0.125] }, { p: [sx * 0.1, 0.52, -0.27 + hz * 0.5], r: [0.048, 0.095] }, { p: [sx * 0.102, 0.44, -0.225 + hz], r: [0.038, 0.058] }], { radial: lr + 2, rings: lrings + 2, ref: [0, 0, 1], shape: shag(0.04) }), Hh + 'u', legCol);
+    B.add(loft([{ p: [sx * 0.102, 0.45, -0.23 + hz], r: [0.036, 0.06] }, { p: [sx * 0.1, 0.32, -0.33 + hz], r: [0.031, 0.052] }, { p: [sx * 0.1, 0.2, -0.41 + hz], r: [0.027, 0.04] }], { radial: lr, rings: lrings, ref: [0, 0, 1], shape: shag(0.04) }), Hh + 'l', legCol);
+    B.add(loft([{ p: [sx * 0.1, 0.21, -0.415 + hz], r: [0.027, 0.034] }, { p: [sx * 0.1, 0.05, -0.39 + hz], r: [0.026, 0.032] }], { radial: lr, rings: 4, ref: [0, 0, 1] }), Hh + 'f', legCol);
+    paw(sx * 0.1, -0.385 + hz, Hh + 'f');
   }
-  // tail: bushy, darker at the tip
-  const tailC = [{ p: [0, 0.76, -0.58], r: [0.045, 0.05] }, { p: [0, 0.71, -0.74], r: [0.075, 0.08] }, { p: [0, 0.62, -0.9], r: [0.075, 0.075] }, { p: [0, 0.52, -1.04], r: [0.05, 0.05] }, { p: [0, 0.45, -1.12], r: [0.012, 0.012] }];
-  const tailBind = (x, y, z) => along1([[-0.98, 'tail3'], [-0.86, 'tail2'], [-0.7, 'tail1']])(z);
-  B.add(loft(tailC, { radial: Math.max(6, radial - 2), rings, shape: shag(0.14, 1.4) }), tailBind, (x, y, z) => shade(z < -1.0 ? dark : mixc(side, back, 0.5), 0.85 + 0.3 * noise(x * 12, y * 12, z * 12)));
-  furTufts(tailC, Q(q, [0, 8, 16, 26]), tailBind, 1, 0.15, 0.85, -1, 1.1);
-  return { def, geo: B.build(), eyes: { bone: 'head', pos: [0, 1.045, 0.8], spread: 0.052, n: 2 }, height: 1.1, roughness: 0.95, side: THREE.FrontSide, accent: null };
+  // tail: bushy, hanging straight down behind the haunches, darker toward the tip
+  const tailC = [{ p: [0, 0.72, -0.35], r: [0.04, 0.04] }, { p: [0, 0.69, -0.41], r: [0.05, 0.05] }, { p: [0, 0.6, -0.45], r: [0.055, 0.06] }, { p: [0, 0.45, -0.49], r: [0.06, 0.062] },
+    { p: [0, 0.3, -0.53], r: [0.055, 0.052] }, { p: [0, 0.2, -0.54], r: [0.04, 0.04] }, { p: [0, 0.15, -0.53], r: [0.01, 0.01] }];
+  const tailBind = (x, y, z) => along1([[0.4, 'tail3'], [0.6, 'tail2'], [0.73, 'tail1']])(y);
+  B.add(loft(tailC, { radial: Math.max(6, radial - 2), rings, ref: [0, 0, 1], shape: shag(0.12, 1.4) }), tailBind, (x, y, z) => shade(y < 0.3 ? dark : mixc(side, back, 0.5), 0.85 + 0.3 * noise(x * 12, y * 12, z * 12)));
+  furTufts(tailC, Q(q, [0, 8, 14, 22]), tailBind, 0.12, 0.85, 0, TAU, new V3(0, -1, 0), 0.9, [0, 0, 1]);
+  return { def, geo: B.build(), eyes: { bone: 'head', pos: [0, 0.889, 0.686], spread: 0.056, n: 2 }, height: 1.08, roughness: 0.95, side: THREE.FrontSide, accent: null,
+    // the top view lies the tail out straight behind (1.51 m long): map it over the same nose-to-tail span
+    uvOpts: { ext: { top: [null, null, 0.8 - 1.51, 0.8] } } };
 }
 
 // =====================================================================
@@ -416,7 +434,7 @@ function wingIndexed(B, q, span, front, chord, spot, bone, sx, hind, P) {
 RigBuilder.prototype.addRaw = function (g, bind, colorAt, slot = 0) {
   const P = g.attributes.position, N = g.attributes.normal, S = this.slots[slot];
   for (let i = 0; i < P.count; i++) {
-    S.p.push(P.getX(i), P.getY(i), P.getZ(i)); S.n.push(N.getX(i), N.getY(i), N.getZ(i)); S.c.push(...colorAt(i));
+    S.p.push(P.getX(i), P.getY(i), P.getZ(i)); S.pin.push(P.getX(i), P.getY(i), P.getZ(i)); S.n.push(N.getX(i), N.getY(i), N.getZ(i)); S.c.push(...colorAt(i));
     S.si.push(this.bi[bind], 0, 0, 0); S.sw.push(1, 0, 0, 0);
   }
   g.dispose();
@@ -806,12 +824,13 @@ function figure(q, who) {
 
 const BUILDERS = { wolf, leech, moth, bandit, sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound, maren: (q) => figure(q, 'maren'), sev: (q) => figure(q, 'sev'), lyn: (q) => figure(q, 'lyn'), ged: (q) => figure(q, 'ged'), girl: (q) => figure(q, 'girl') };
 const cache = {};
-export const TEXTURED = new Set(['sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl']); // wolf, bandit, leech: atlases are built (tools/atlas.py), bodies not yet refit
+export const TEXTURED = new Set(['wolf', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl']); // bandit, leech: atlases are built (tools/atlas.py), bodies not yet refit
 export function getRig(type, q) {
   const k = type + q;
   if (!cache[k]) {
     const r = (cache[k] = BUILDERS[type](q));
     if (TEXTURED.has(type) && ATLAS[type]) { projectUV(r.geo, ATLAS[type], r.uvExtra || [], r.uvOpts || {}); r.atlas = ATLAS[type]; r.atlasName = type; }
+    if (r.geo.attributes.pin) r.geo.deleteAttribute('pin'); // only projectUV reads it
   }
   return cache[k];
 }

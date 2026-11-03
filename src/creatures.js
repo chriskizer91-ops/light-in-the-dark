@@ -35,7 +35,7 @@ const SEEN = { wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.
 const GLOSS = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0xffffff, dithering: true }));
 const STEEL = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0xfff0d8, dithering: true }));
 const GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-const TONE = { wolf: 0.75, leech: 0.7, moth: 1, bandit: 0.9, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
+const TONE = { wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.9, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
 const spriteMat = (color, add) => new THREE.SpriteMaterial({ map: glowTex, color, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
 
 // ---------- visuals ----------
@@ -66,7 +66,7 @@ function buildVisual(e) {
     e.eyeAnchor = anchorOn(e, rig, rig.eyes.bone, rig.eyes.pos);
     for (let i = 0; i < rig.eyes.n; i++) { const sp = new THREE.Sprite(e.eyeMat); e.eyeAnchor.add(sp); e.eyes.push(sp); }
   }
-  if (e.type === 'wolf') e.mouth = anchorOn(e, rig, 'jaw', [0, 0.96, 0.95]);
+  if (e.type === 'wolf') e.mouth = anchorOn(e, rig, 'jaw', [0, 0.765, 0.78]);
   if (e.type === 'bandit') e.mouth = anchorOn(e, rig, 'head', [0, 1.62, 0.13]);
   if (e.type === 'moth') {
     e.glow = new THREE.Sprite(spriteMat(0xff9a40, true)); e.glow.scale.set(0.8, 0.8, 1); anchorOn(e, rig, rig.glowBone, [0, -0.06, -0.22]).add(e.glow);
@@ -130,7 +130,7 @@ function chooseWanderTarget(e) {
 }
 const nudge = (e, a, d) => moveWithCollisions(e, Math.cos(a) * d / 0.08, Math.sin(a) * d / 0.08, 0.08);
 const angleTo = (ax, az, bx, bz) => Math.atan2(bz - az, bx - ax);
-const chestY = (e) => (e.type === 'moth' ? e.fy : e.type === 'bandit' ? 1.3 : e.type === 'wolf' ? 0.75 : e.type === 'hound' ? 0.85 : STONE(e) ? 1.4 * (e.def.scale || 1) : 0.35);
+const chestY = (e) => (e.type === 'moth' ? e.fy : e.type === 'bandit' ? 1.3 : e.type === 'wolf' ? 0.68 : e.type === 'hound' ? 0.85 : STONE(e) ? 1.4 * (e.def.scale || 1) : 0.35);
 const HIT_COL = { wolf: [1, 0.85, 0.6], leech: [0.75, 0.55, 1], moth: [1, 0.6, 0.25], bandit: [1, 0.85, 0.6], sentinel: [1, 0.9, 0.7], guardian: [0.9, 0.88, 0.8], hound: [0.75, 0.85, 1] };
 
 // ---------- combat (ported) ----------
@@ -334,8 +334,10 @@ function animWolf(e, dt, t) {
   const earBack = aware ? -0.55 : Math.sin(t * 0.9 + e.gait) > 0.97 ? -0.3 : 0;
   rx(b.earL, earBack, k); rx(b.earR, earBack, k);
   const hk = lerp(b.hackles.scale.y, c > 0 ? 2.3 : aware ? 1.7 : 1, damp(4, dt)); b.hackles.scale.set(1, hk, 1);
-  rx(b.tail1, aware ? 0.35 : -0.25, damp(5, dt)); b.tail1.rotation.y = Math.sin(aware ? e.gait * 0.5 : t * 1.4) * (aware ? 0.12 : 0.3);
-  rx(b.tail2, aware ? 0.1 : -0.15, k); b.tail2.rotation.y = Math.sin((aware ? e.gait * 0.5 : t * 1.4) - 0.8) * 0.25;
+  // the wolf's tail hangs at rest (as on its sheet) and lifts out behind it when it means it; the hound's whip streams back
+  const hang = e.type === 'wolf';
+  rx(b.tail1, aware ? (hang ? 0.55 : 0.35) : hang ? 0.04 : -0.25, damp(5, dt)); b.tail1.rotation.y = Math.sin(aware ? e.gait * 0.5 : t * 1.4) * (aware ? 0.12 : hang ? 0.12 : 0.3);
+  rx(b.tail2, aware ? (hang ? 0.25 : 0.1) : hang ? 0.02 : -0.15, k); b.tail2.rotation.y = Math.sin((aware ? e.gait * 0.5 : t * 1.4) - 0.8) * 0.25;
 }
 function animLeech(e, dt, t) {
   const b = e.b, s = clamp(e.vel / 3.3, 0, 1.5), lunging = e.lungeTime > 0, c = e.windup > 0 ? 1 - e.windup / Math.max(0.01, e.windupMax) : 0;
