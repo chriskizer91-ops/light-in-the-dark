@@ -22,7 +22,7 @@ export const G = {
 export const P = {
   x: 0, z: 0, r: 0.42, yaw: 0, pitch: 0, hp: 100, maxHp: 100, fuel: 100, maxFuel: 100,
   invuln: 0, dashT: 0, dashCd: 0, attackCd: 0, flareCd: 0, pulseCd: 0, hurt: 0, bob: 0, moving: 0, lastStep: 0,
-  dashX: 0, dashZ: 0, pushX: 0, pushZ: 0, swingSide: 1,
+  dashX: 0, dashZ: 0, pushX: 0, pushZ: 0, walkX: 0, walkZ: 0, swingSide: 1,
   atkBonus: 0, brightBonus: 0, dr: 0, pulseCostMult: 1, speedK: 0, // relics, Sera, Sev's wares, Lyn and the girl change these
 };
 

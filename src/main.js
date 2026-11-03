@@ -69,7 +69,7 @@ const FLOORS = {
 function buildRun(seed, floor = 3, carry = null) {
   generateLevel(seed, floor); buildWorld(); spawnCreatures(); buildStory(); setAmbience(floor);
   G.floor = floor;
-  Object.assign(P, { x: LV.spawn.x, z: LV.spawn.z, hp: 100, maxHp: 100, fuel: 100, invuln: 0, dashT: 0, dashCd: 0, attackCd: 0, flareCd: 0, pulseCd: 0, hurt: 0, bob: 0, moving: 0, pushX: 0, pushZ: 0, pitch: -0.05, atkBonus: 0, brightBonus: 0, dr: 0, pulseCostMult: 1, speedK: 0 });
+  Object.assign(P, { x: LV.spawn.x, z: LV.spawn.z, hp: 100, maxHp: 100, fuel: 100, invuln: 0, dashT: 0, dashCd: 0, attackCd: 0, flareCd: 0, pulseCd: 0, hurt: 0, bob: 0, moving: 0, pushX: 0, pushZ: 0, walkX: 0, walkZ: 0, pitch: -0.05, atkBonus: 0, brightBonus: 0, dr: 0, pulseCostMult: 1, speedK: 0 });
   if (carry) Object.assign(P, carry);
   G.talk = null; $('dlg').classList.add('hidden'); document.body.classList.remove('talking');
   // start facing the last fire
@@ -229,8 +229,11 @@ function updatePlayer(dt) {
   const [mx, mz] = readMove(dt);
   P.pitch = clamp(P.pitch, -1.3, 1.25);
   const sp = 3.7 * (lantern.mode === 0 ? 1.06 : 1) * (1 + P.speedK), s = Math.sin(P.yaw), c = Math.cos(P.yaw);
-  let vx = (-s * mz + c * mx) * sp, vz = (-c * mz - s * mx) * sp;
-  if (P.dashT > 0) { vx = P.dashX * 11; vz = P.dashZ * 11; }
+  // walking eases in and out (about a fifth of a second to full speed or to a stop) instead of snapping
+  const tx = (-s * mz + c * mx) * sp, tz = (-c * mz - s * mx) * sp, ka = 1 - Math.exp(-(Math.hypot(tx, tz) > Math.hypot(P.walkX, P.walkZ) ? 14 : 16) * dt);
+  P.walkX += (tx - P.walkX) * ka; P.walkZ += (tz - P.walkZ) * ka;
+  if (P.dashT > 0) { P.walkX = P.dashX * 11; P.walkZ = P.dashZ * 11; } // and a dash carries a little momentum out of it
+  let vx = P.walkX, vz = P.walkZ;
   vx += P.pushX; vz += P.pushZ; const pk = Math.exp(-9 * dt); P.pushX *= pk; P.pushZ *= pk;
   moveWithCollisions(P, vx, vz, dt);
   const speed = Math.hypot(vx, vz);
@@ -500,7 +503,7 @@ function resize() {
 addEventListener('resize', resize);
 $('ctrlText').textContent = IS_TOUCH
   ? 'Left thumb walks · right thumb looks · SLASH · DASH · FLARE · PULSE · LIGHT opens the shutter · USE. Landscape works best.'
-  : 'WASD move · mouse look · click or Space: slash · Shift: dash · right-click or F: flare · E: pulse · Q or 1 2 3: lantern shutter · R: use · T: rendering tricks · Esc: pause';
+  : 'WASD move · mouse look (or ← → to turn) · click or Space: slash · Shift: dash · right-click or F: flare · E: pulse · Q or 1 2 3: lantern shutter · R: use · T: rendering tricks · Esc: pause';
 
 // ---------- loop ----------
 let lastT = performance.now();

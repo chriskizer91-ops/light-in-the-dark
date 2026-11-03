@@ -138,7 +138,7 @@ export function talkTarget() {
 export const talkName = (n) => NAME[n.id];
 export function openTalk(n) {
   const id = opening(n.id); if (!id) return;
-  G.talk = { id, n, line: 0, typed: 0, sel: 0 }; G.paused = true; document.body.classList.add('talking'); sfx.blip && sfx.blip();
+  G.talk = { id, n, line: 0, typed: 0, sel: 0 }; G.paused = true; P.walkX = P.walkZ = 0; document.body.classList.add('talking'); sfx.blip && sfx.blip();
   render(true);
 }
 function render(fresh) {

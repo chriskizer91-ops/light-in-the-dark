@@ -73,7 +73,7 @@ Triangles and draw calls on screen in the Eastern Ruins, BRIGHT beam, four fixed
 
 ## Controls
 
-- **Desktop:** WASD move, mouse look (click to capture), click or Space slash (also strikes Sera's chain anchors), Shift dash, right-click or F flare, E pulse, Q (or 1 2 3) lantern shutter, R use (light a brazier, descend), T rendering tricks, Esc pause.
+- **Desktop:** WASD move, mouse look (click to capture), or ← → to turn and Page Up / Page Down to look up and down (for laptops that switch the touchpad off while a key is held), click or Space slash (also strikes Sera's chain anchors), Shift dash, right-click or F flare, E pulse, Q (or 1 2 3) lantern shutter, R use (light a brazier, descend), T rendering tricks, Esc pause.
 - **Touch:** left thumb walks, right thumb looks, plus LIGHT, PULSE, USE, FLARE, DASH and SLASH.
 - **Gamepad:** sticks move and look, A/RT slash, B dash, X pulse, Y use, LB shutter, RB/LT flare.
 

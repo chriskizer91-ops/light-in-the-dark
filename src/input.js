@@ -15,6 +15,7 @@ const playing = () => G.state === 'playing';
 addEventListener('keydown', (e) => {
   if (e.repeat) { if (e.code === 'Space') e.preventDefault(); return; }
   keys[e.code] = true;
+  if (playing() && /^(Arrow|Page)/.test(e.code)) e.preventDefault();
   if (G.talk && A.talkKey) { if (e.code !== 'Escape' && e.code !== 'KeyT') e.preventDefault(); A.talkKey(e.code); return; } // a conversation is open
   if (e.code === 'KeyT' && (playing() || G.state === 'menu')) A.tricks();
   if (!playing() || G.paused) return;
@@ -86,13 +87,23 @@ bindBtn('bPulse', () => A.pulse()); bindBtn('bLight', () => A.mode()); bindBtn('
 
 // ---------- gamepads ----------
 const padPrev = {};
+let keyTurn = 0;
 function pad() { try { for (const p of navigator.getGamepads ? navigator.getGamepads() : []) if (p && p.connected !== false) return p; } catch (e) { /* none */ } return null; }
 
 // returns the move vector (x right, y forward) and applies look from sticks
 export function readMove(dt) {
   let mx = 0, mz = 0;
   if (keys.KeyW || keys.ArrowUp) mz += 1; if (keys.KeyS || keys.ArrowDown) mz -= 1;
-  if (keys.KeyA || keys.ArrowLeft) mx -= 1; if (keys.KeyD || keys.ArrowRight) mx += 1;
+  if (keys.KeyA) mx -= 1; if (keys.KeyD) mx += 1;
+  // ← → turn, easing in and out. Many laptops switch the touchpad off while a key is held (palm rejection),
+  // so walking with WASD and looking with the pad at once can be impossible: the arrows turn instead.
+  if (dt > 0) {
+    const want = playing() && !G.paused && !G.talk ? (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0) : 0;
+    keyTurn += (want - keyTurn) * (1 - Math.exp(-(want ? 9 : 14) * dt));
+    if (Math.abs(keyTurn) < 1e-3) keyTurn = 0;
+    P.yaw -= keyTurn * 2.5 * dt;
+    if (keys.PageUp) P.pitch += 1.4 * dt; if (keys.PageDown) P.pitch -= 1.4 * dt;
+  }
   mx += stick.vx; mz -= stick.vy;
   const gp = pad();
   if (gp && playing() && !G.paused) {
