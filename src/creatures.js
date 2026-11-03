@@ -4,7 +4,7 @@ import { lantern, beamAt, glint, lanternLevel, MODES, NEAR_R } from './lantern.j
 import { W, litTest, worldLevel, DETAIL, seenPoint } from './world3d.js';
 import { getRig, makeSkeleton, LEECH_N, rigMaterial } from './rigs.js';
 import { burst, ember, puff, dust } from './fx.js';
-import { G, P, H, BAL, DF } from './state.js';
+import { G, P, H, S, BAL, DF } from './state.js';
 import { sfx } from './audio.js';
 
 // =====================================================================
@@ -35,6 +35,7 @@ const SEEN = { wolf: 'Wolves. Starving and desperate.', bandit: 'Armed. Careful.
 const GLOSS = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0xffffff, dithering: true }));
 const STEEL = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0xfff0d8, dithering: true }));
 const GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+const SCORE = { wolf: 6, leech: 6, moth: 4, bandit: 10, leader: 18, sentinel: 16, guardian: 20, hound: 10, choir: 5 }; // the 2D Crown's scores
 const TONE = { wolf: 0.55, leech: 0.7, moth: 1, bandit: 0.42, sentinel: 0.16, guardian: 0.3, hound: 0.38 };
 const spriteMat = (color, add) => new THREE.SpriteMaterial({ map: glowTex, color, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
 
@@ -222,6 +223,7 @@ function kill(e, dir) {
   else if (e.type === 'leech') { burst(e.x, y, e.z, 24, [0.7, 0.45, 1], 2, 0.8, -3); dust(e.x, 0.3, e.z, 6, [0.12, 0.08, 0.16]); }
   else dust(e.x, 0.25, e.z, 7, [0.14, 0.13, 0.12]);
   if (Math.random() < 0.18) H.addPickup('fuel', e.x, e.z);
+  S.coins += Math.floor((SCORE[e.rig || e.type] || 5) * 0.6 + Math.random() * 4); // what they carried (the 2D Crown's coin drop)
   CR.list = CR.list.filter((o) => o !== e); CR.dead.push(e);
 }
 

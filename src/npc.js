@@ -15,7 +15,7 @@ import { CR, addCreature } from './creatures.js';
 //  and in the Gray Forest a girl is hiding. Walk up to someone, face them
 //  and press USE to talk. Lyn, once she joins, follows you floor to floor.
 // =====================================================================
-const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL', leader: 'BANDIT LEADER' };
+const NAME = { maren: 'ELDER MAREN', sev: 'SEV', lyn: 'LYN', ged: 'FARMER GED', girl: 'THE GIRL', leader: 'BANDIT LEADER', merchant: 'THE GRAY MERCHANT' };
 const TONE = { maren: 0.62, sev: 0.6, lyn: 0.6, ged: 0.6, girl: 0.62, leader: 0.42 };
 const close = { text: 'Leave.', close: true };
 const D = {
@@ -90,6 +90,15 @@ const D = {
       { text: '“The curse will kill you before I do. Come to the village instead.”', next: 'leader_persuade', req: () => S.helpedFarmer, why: () => 'needs: you helped the farmer' },
     ],
   },
+  // Floor IV: the Gray Merchant, sitting in the ruins with his own small lamp (the 2D Crown's ruins_merchant)
+  merchant_shop: {
+    who: 'merchant', lines: ['I sell to those who go in. I buy from those who come out. So far, I have done a lot of selling.'],
+    shop: true,
+    choices: [
+      { text: 'Runed Blade — 50 coins', req: () => S.coins >= 50 && !S.runedBlade, why: () => (S.runedBlade ? 'bought' : '50 coins'), fn: () => { S.coins -= 50; S.runedBlade = true; P.atkBonus += 6; P.brightBonus += 0.04; sfx.relic(); H.hint('Runed Blade. +6 attack, and the bright beam bites a little harder.', 3); } },
+      { text: 'Warding Plate — 45 coins', req: () => S.coins >= 45 && !S.wardingPlate, why: () => (S.wardingPlate ? 'bought' : '45 coins'), fn: () => { S.coins -= 45; S.wardingPlate = true; P.dr += 0.1; P.maxHp += 8; P.hp = Math.min(P.maxHp, P.hp + 8); sfx.relic(); H.hint('Warding Plate. +8 vitality, and blows land softer.', 3); } },
+      close],
+  },
   leader_persuade: {
     who: 'leader', lines: ['…The village would take us? After what we’ve done to their caravans?', 'You’re either foolish or honest. I can’t tell. But the gray is spreading and we can’t eat bark forever. Fine. We’ll go.'],
     done: () => { if (S.banditsPersuaded) return; S.clearedBandits = S.banditsPersuaded = true; S.coins += 15; sfx.relic(); H.hint('+15 coins. The bandits leave for the village.', 3); campLeave(); },
@@ -115,9 +124,9 @@ function campLeave() {
   for (const o of CR.list) if (o.camp) o.leaving = 0;
   const n = NPCS.list.find((q) => q.id === 'leader'); if (n) { n.leaving = 0.001; n.walkOff = Math.atan2(n.z - P.z, n.x - P.x); }
 }
-const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found', leader: LV.campHold ? 'leader_encounter' : null })[id];
+const opening = (id) => ({ maren: S.talkedToElder ? 'maren_rest' : 'maren_initial', sev: 'sev_shop', lyn: S.talkedToLyn ? 'lyn_gate' : 'lyn_initial', ged: S.helpedFarmer ? 'ged_thanks' : 'ged_quest', girl: 'girl_found', leader: LV.campHold ? 'leader_encounter' : null, merchant: 'merchant_shop' })[id];
 
-export const NPCS = { list: [], lyn: null };
+export const NPCS = { list: [], lyn: null, extra: [] }; // extra: people who talk but are part of the scenery (the Gray Merchant)
 const _d = new THREE.Vector3();
 
 // ---------- bodies ----------
@@ -134,6 +143,7 @@ function makeVisual(n) {
 }
 export function buildNPCs() {
   NPCS.list = []; NPCS.lyn = null;
+  NPCS.extra = LV.story && LV.story.merchant ? [{ id: 'merchant', x: LV.story.merchant.x, z: LV.story.merchant.z, facing: 0, r: 0.4 }] : [];
   for (const s of LV.npcs) {
     if (s.id === 'lyn' && S.lynJoined) continue; // she is already with you
     const n = { ...s, facing: s.face || 0, r: 0.35, leaving: 0 }; makeVisual(n); NPCS.list.push(n);
@@ -161,7 +171,7 @@ function placeBehind(n) {
 export function talkTarget() {
   if (G.talk) return null; let best = null, bd = 2.6;
   const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
-  for (const n of NPCS.list) {
+  for (const n of [...NPCS.list, ...NPCS.extra]) {
     if (n.leaving || n.companion) continue;
     const dx = n.x - P.x, dz = n.z - P.z, d = Math.hypot(dx, dz); if (d > bd) continue;
     if ((dx * fx + dz * fz) / (d || 1) < 0.3 && d > 1.2) continue;

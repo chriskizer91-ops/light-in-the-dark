@@ -4,7 +4,7 @@ import { W, seenPoint, collapseTiles, DETAIL } from './world3d.js';
 import { lantern, beamAt, aimedAt } from './lantern.js';
 import { CR } from './creatures.js';
 import { burst, dust, ember } from './fx.js';
-import { G, P, H } from './state.js';
+import { G, P, H, S } from './state.js';
 import { sfx } from './audio.js';
 import { SB } from './ruins.js';
 import { loft, blob } from './rigs.js';
@@ -186,7 +186,7 @@ function freeSera() {
 // a creature fell: the Ruin Guardian's death wakes the carved signs
 export function storyCreatureDown(e) {
   if (!ST.on || !e.guardian) return;
-  ST.guardianDown = true;
+  ST.guardianDown = true; S.coins += 20; // what it guarded (the 2D Crown)
   later(1.6, () => collapse('spirit', 'The light dims. The binding chamber is gone.'));
   later(5.5, () => { ST.puzzle = true; for (const p of ST.plaques) burst(p.x, p.y, p.z, 14, [0.75, 0.8, 0.9], 1, 0.8, 0); H.say(ST.murals.length ? 'Carved into the wall: three signs. The same three as the pictures.' : 'Carved into the wall: three signs. Crown, Light, Shadow.', true); });
   later(12, () => { if (!ST.solved && ST.seq.length === 0) H.hint('Hold the bright beam on each sign, in the right order.', 5); });
@@ -245,8 +245,7 @@ export function updateStory(dt, live) {
   // ---- the Gray Merchant ----
   const m = ST.merchant, dm = Math.hypot(P.x - m.x, P.z - m.z), mlos = dm < 30 && lineOfSight(P.x, P.z, m.x, m.z);
   m.glow.visible = mlos && (!settings.culling || seenPoint(m.x, m.z, 0.6)); m.glow.material.opacity = 0.42 + 0.08 * Math.sin(t * 3.1);
-  if (live && m.spoke === 0 && dm < 4.6 && mlos && G.t > 1.2) { m.spoke = 1; m.t = G.t; sfx.merchant(); H.say('I sell to those who go in. I buy from those who come out. So far, I have done a lot of selling.', true, 'merchant'); }
-  if (live && m.spoke === 1 && dm < 3.2 && G.t - m.t > 20) { m.spoke = 2; H.say('Nothing for sale down here. Take what is on the floor. On credit.', true, 'merchant'); }
+  if (live && m.spoke === 0 && dm < 6 && mlos && G.t > 1.2) { m.spoke = 1; m.t = G.t; sfx.merchant(); H.say('Someone is sitting there, with a lamp of his own.'); } // walk up and USE to trade (npc.js)
   // ---- murals: the lantern notices them ----
   if (live && !G.tips.murals) for (const mu of ST.murals) if (mu.panel.mesh.visible && Math.hypot(P.x - mu.x, P.z - mu.z) < 9) { G.tips.murals = 1; H.say('Three pictures. A crown, a light, a shadow. Someone wanted them remembered in that order.'); break; }
   // ---- the carved signs ----
