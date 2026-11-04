@@ -422,6 +422,13 @@ function moth(q) {
   }
   // wings: cut from the flat-wing sheet (CR06, tools/remaster/moth_wings.py): its painted wings on a cambered
   // grid, the outline in the texture's alpha, the eyespot glowing from a mask of its own
+  if (typeof window !== 'undefined' && window.__noRemaster) { // (tests: the procedural wings, for before/after shots)
+    for (const [sx, fw, hw] of [[1, 'fwL', 'hwL'], [-1, 'fwR', 'hwR']]) {
+      wingIndexed(B, q, 0.62, (u) => 0.06 + 0.07 * u, (u) => 0.12 + 0.2 * Math.sin(Math.PI * (0.15 + 0.7 * u)), [0.62, 0.52], fw, sx, false, { base, dark, cream, ember });
+      wingIndexed(B, q, 0.46, (u) => -0.02 - 0.04 * u, (u) => 0.18 + 0.12 * Math.sin(Math.PI * u), [0.55, 0.5], hw, sx, true, { base, dark, cream, ember });
+    }
+    return { def, geo: B.build(), eyes: null, height: 0.6, roughness: 0.85, side: THREE.DoubleSide, accent: 'glow', glowBone: 'abd1' };
+  }
   for (const [sx, fw, hw] of [[1, 'fwL', 'hwL'], [-1, 'fwR', 'hwR']]) { wingCard(B, q, 'fore', sx, fw); wingCard(B, q, 'hind', sx, hw); }
   return { def, geo: B.build(), eyes: null, height: 0.6, roughness: 0.85, side: THREE.DoubleSide, accent: 'glow', glowBone: 'abd1',
     baked: wingTexture('wings', mothWingsUrl, true), bakedGlow: wingTexture('glow', mothGlowUrl, false), glowColor: 0xff8a30, vertexColors: true, alphaTest: 0.5, bump: 0.6 };
@@ -680,7 +687,7 @@ function sentinel(q, guardian = false) {
     B.add(blob(q ? 1 : 0), bone, shade(drip, 0.95), { matrix: M(x, y + 0.01, z, 0, 0, 0, r * 1.9, r * 0.8, r * 1.9) }); // wax pooled at its foot
     B.add(new THREE.CylinderGeometry(0.004, 0.004, 0.025, 4), bone, soot, { matrix: M(x, y + h + 0.012, z) });
     for (let i = 0; i < Q(q, [1, 2, 3, 4]); i++) { const a = rr(0, TAU); B.add(cone(4, r * 0.4, rr(0.04, h * 0.8)), bone, shade(drip, 1.05), { flat: true, matrix: along(new V3(x + Math.cos(a) * r, y + h - 0.005, z + Math.sin(a) * r), new V3(0, -1, 0)) }); }
-    candles.push({ bone, pos: [x, y + h + 0.035, z], s: r * 3.2 }); uvExtra.push([x, y + h + 0.09, z]);
+    candles.push({ bone, pos: [x, y + h + 0.035, z], s: r * 3.2, base: [x, y, z], r }); uvExtra.push([x, y + h + 0.09, z]);
   };
   let eye;
   if (!guardian) {
@@ -949,9 +956,12 @@ export const TEXTURED = new Set(['wolf', 'bandit', 'leader', 'sentinel', 'guardi
 // eyes, accents and the rest. The DETAIL levels LOW / HIGH / ULTRA / MAX take the LODs from the bottom up.
 // Pieces of the procedural rig that the carved body keeps (they are not in the sheet's silhouette, or move on
 // their own): picked per triangle by (bone, slot, centroid y, z); drawn as a second skinned mesh on the same skeleton.
+const nearCandle = (old, x, y, z) => old.candles && old.candles.some((c) => Math.hypot(x - c.base[0], z - c.base[2]) < c.r * 2.1 && y > c.base[1] - 0.03 && y < c.pos[1] + 0.02);
 const EXTRA = {
   leech: (b) => /^t\d/.test(b),                                           // the tentacles round the mouth
-  wolf: (b, slot, y, z) => slot === 1 && y < 0.785 && z > 0.7,              // the teeth (the mouth opens)
+  wolf: (b, slot, x, y, z) => slot === 1 && y < 0.785 && z > 0.7,           // the teeth (the mouth opens)
+  sentinel: (b, slot, x, y, z, old) => nearCandle(old, x, y, z),            // the candles on its crown and shoulders
+  guardian: (b, slot, x, y, z, old) => nearCandle(old, x, y, z),
 };
 const GLOW_COLOR = { leech: 0x9a6cff };
 const META = {};
@@ -960,8 +970,8 @@ function extraGeo(old, def, keep) {
   const idx = {}; def.forEach((b, i) => (idx[b.name] = i));
   const out = { p: [], n: [], c: [], si: [], sw: [] }, groups = [[], [], []];
   for (const gr of g.groups) for (let t = gr.start; t < gr.start + gr.count; t += 3) {
-    const bone = old.def[SI.getX(t)].name, cy = (P.getY(t) + P.getY(t + 1) + P.getY(t + 2)) / 3, cz = (P.getZ(t) + P.getZ(t + 1) + P.getZ(t + 2)) / 3;
-    if (keep(bone, gr.materialIndex, cy, cz)) groups[Math.max(1, gr.materialIndex)].push(t);
+    const bone = old.def[SI.getX(t)].name, cx = (P.getX(t) + P.getX(t + 1) + P.getX(t + 2)) / 3, cy = (P.getY(t) + P.getY(t + 1) + P.getY(t + 2)) / 3, cz = (P.getZ(t) + P.getZ(t + 1) + P.getZ(t + 2)) / 3;
+    if (keep(bone, gr.materialIndex, cx, cy, cz, old)) groups[Math.max(1, gr.materialIndex)].push(t);
   }
   const geo = new THREE.BufferGeometry(); let start = 0;
   for (let k = 1; k < 3; k++) {
