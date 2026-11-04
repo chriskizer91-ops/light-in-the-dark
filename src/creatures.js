@@ -63,7 +63,7 @@ function buildVisual(e) {
   let extra = null;
   if (rig.extra) { extra = new THREE.SkinnedMesh(rig.extra, [GLOSS, GLOSS, accent || (rig.accent === 'steel' ? STEEL : GLOW)]); extra.frustumCulled = false; extra.castShadow = true; extra.receiveShadow = true; mesh.add(extra); }
   grp.updateMatrixWorld(true); mesh.bind(skeleton); if (extra) extra.bind(skeleton, mesh.bindMatrix);
-  Object.assign(e, { grp, mesh, mat: body, glowU: body.userData.glow || null, glowB: body.userData.glowB || null, b: by, tris: rig.geo.userData.tris + (rig.extra ? rig.extra.userData.tris : 0), eyes: [], eyeMat: null, glow: null, blade: null, bladeMat: null, mouth: null, accentMat: accent, flames: [], flameMat: null });
+  Object.assign(e, { grp, mesh, mat: body, glowU: body.userData.glow || (rig.glowHeat ? body.userData.glowB : null) || null, glowB: rig.glowHeat ? null : body.userData.glowB || null, b: by, tris: rig.geo.userData.tris + (rig.extra ? rig.extra.userData.tris : 0), eyes: [], eyeMat: null, glow: null, blade: null, bladeMat: null, mouth: null, accentMat: accent, flames: [], flameMat: null });
   grp.scale.setScalar(e.def.scale || 1);
   if (rig.candles) {
     e.flameMat = new THREE.SpriteMaterial({ map: flameTex, color: 0xffc070, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0 });

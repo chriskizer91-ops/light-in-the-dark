@@ -231,8 +231,10 @@ function makeVisual(n) {
   const body = rigMaterial(rig, psx); body.color.setScalar(TONE[n.id]);
   const prop = psx(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 50, specular: 0x887766, dithering: true }));
   const mesh = new THREE.SkinnedMesh(rig.geo, [body, prop, prop]); mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true; grp.add(mesh);
+  let extra = null;   // a rebaked body keeps its procedural props and gloss as a second mesh on the same skeleton
+  if (rig.extra) { extra = new THREE.SkinnedMesh(rig.extra, [prop, prop, prop]); extra.frustumCulled = false; extra.castShadow = true; mesh.add(extra); }
   if (n.id === 'leader') grp.scale.setScalar(2.0 / 1.86); // he stands a head over his men
-  grp.updateMatrixWorld(true); mesh.bind(skeleton); W.group.add(grp);
+  grp.updateMatrixWorld(true); mesh.bind(skeleton); if (extra) extra.bind(skeleton, mesh.bindMatrix); W.group.add(grp);
   W.disposables.push(body, prop, { dispose: () => skeleton.dispose() });
   Object.assign(n, { grp, mesh, mat: body, b: by, t: Math.random() * 10, look: 0 });
 }

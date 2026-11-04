@@ -21,7 +21,9 @@ def export(src, dst, name, lods=3):
         q = (np.round((P[v] - lo) / (hi - lo) * 4095).astype(np.uint16) << 4)   # 12 bits in the box (0.4 mm on a wolf): compresses far better
         o = oct_enc(N[v])
         u = ((np.round(uv[first] / 65535 * 4095).astype(np.int64) << 4) | 8).astype(np.uint16)   # 12 bits: a texel of a 4K map
-        ww = W[v]; top = np.argsort(-ww, 1)[:, :4]; tw = np.take_along_axis(ww, top, 1)
+        ww = W[v]
+        if ww.shape[1] < 4: ww = np.pad(ww, ((0, 0), (0, 4 - ww.shape[1])))   # fewer than four bones
+        top = np.argsort(-ww, 1)[:, :4]; tw = np.take_along_axis(ww, top, 1)
         tw = tw / np.maximum(1e-9, tw.sum(1, keepdims=True)); b = (np.round(tw * 51) * 5).astype(np.int32)   # weights in steps of 1/51
         b[:, 0] += 255 - b.sum(1)   # the weights sum to exactly 255
         top[tw == 0] = 0

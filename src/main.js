@@ -6,7 +6,7 @@ import { buildWorld, W, ensureDetail, DETAIL, updateWorldLights, updateCulling, 
 import { buildStory, updateStory, slashStory, storyCreatureDown, ST } from './story.js';
 import { spawnCreatures, updateCreatures, CR, damageEnemy, exposeEnemy, interruptEnemy, addCreature, refreshCreatureDetail, creatureTris } from './creatures.js';
 import { updateFX, burst } from './fx.js';
-import { rigTris } from './rigs.js';
+import { rigTris, rigExport } from './rigs.js';
 import { remasterReady, remasterStatus, REM } from './remaster.js';
 import { FF } from './forest.js';
 import { G, P, H, BAL, S, resetStory, DF, DIFFS, setDifficulty } from './state.js';
@@ -623,5 +623,5 @@ remasterReady.then(() => {
   window.__crown3d = { G, P, ST, S, NPCS, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris, descend, nextFloor,
     measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: creatureTris(), blocks: W.ruins && W.ruins.blocks ? W.ruins.blocks.drawn : 0, occluded: W.occluded || 0 }; },
     step(sec, render = true) { let n = Math.round(sec * 60), now = lastT; for (let i = 0; i < n; i++) { now += 1000 / 60; runFrame(now, false, 1 / 60); } if (render) runFrame(now + 1000 / 60, true, 1 / 60); } };
-  window.__crown3d.remaster = remasterStatus; window.__crown3d.FF = FF; window.__crown3d.REM = REM;
+  window.__crown3d.remaster = remasterStatus; window.__crown3d.FF = FF; window.__crown3d.REM = REM; window.__crown3d.rigExport = rigExport;
 });

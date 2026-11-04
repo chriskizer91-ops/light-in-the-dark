@@ -36,6 +36,10 @@ node build.mjs          # -> dist/hollow-crown-3d.html (one file: open it in any
 
 `python3 tools/remaster/run.py wolf` runs all four. `src/remaster.js` decodes them at startup; a creature without one keeps its procedural body.
 
+**Rebaked rigs** (`tools/remaster/rebake.py <type> [vox=size:faces]`): the people, the bandits, the sentinel and guardian, the robed figures and the choir were already fitted to their sheets in code, so they keep their shapes and skeletons. Their MAX-detail body is exported from the game (`rigExport`), optionally remeshed in Blender into one watertight surface (closing the cracks between lofted pieces), unwrapped, and painted from its own projection atlas with a depth test per view and ambient occlusion (`bl_rebake.py`, `paint_rebake.py`). The game then samples one texture instead of blending three projections; their props, steel and glowing accents stay procedural (a second skinned mesh on the same skeleton).
+
+The moth's wings are cut from their flat sheet (`tools/remaster/moth_wings.py` → `src/assets/moth_wings.webp`), with an alpha outline and a glowing eyespot.
+
 **The woods: the Field & Forest pack** (Christopher's, from his Forest Builder). `tools/forest.py` repacks its temperate trees, bushes and grass (spruce, ponderosa pine, aspen, bur oak, cottonwood, dead snag, weeping willow, oleander, sagebrush, meadow and dry grass) into `src/assets/forest/forest.bin`; `src/forest.js` decodes it. Floors I–III draw each tree's far model wherever the lantern touches it and its near model when it is lit and close (`ffLod` in `world3d.js`): ponderosa at the clearings' edges with spruce behind, aspen, snags, an oak or cottonwood for each elder, a willow by each pond, oleander and sage as the thickets, and the pack's grass tufts in the ground cover. The desert plants and the modern props are left out.
 
 ## Files

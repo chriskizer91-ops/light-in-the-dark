@@ -960,10 +960,14 @@ const nearCandle = (old, x, y, z) => old.candles && old.candles.some((c) => Math
 const EXTRA = {
   leech: (b) => /^t\d/.test(b),                                           // the tentacles round the mouth
   wolf: (b, slot, x, y, z) => slot === 1 && y < 0.785 && z > 0.7,           // the teeth (the mouth opens)
-  sentinel: (b, slot, x, y, z, old) => nearCandle(old, x, y, z),            // the candles on its crown and shoulders
-  guardian: (b, slot, x, y, z, old) => nearCandle(old, x, y, z),
+  sentinel: (b, slot, x, y, z, old) => slot >= 1 || nearCandle(old, x, y, z),   // the candles on its crown and shoulders
+  guardian: (b, slot, x, y, z, old) => slot >= 1 || nearCandle(old, x, y, z),
 };
-const GLOW_COLOR = { leech: 0x9a6cff };
+// rigs rebaked from their own projection (tools/remaster/rebake.py): their gloss and accent pieces stay procedural
+const REBAKED = new Set(['bandit', 'leader', 'sentinel', 'guardian', 'maren', 'sev', 'lyn', 'ged', 'girl', 'wraith', 'king', 'witness', 'choir']);
+for (const t of REBAKED) if (!EXTRA[t]) EXTRA[t] = (b, slot) => slot >= 1;
+const GLOW_COLOR = { leech: 0x9a6cff, sentinel: 0xff8a2a, guardian: 0xff8a2a };
+const GLOW_HEAT = new Set(['sentinel', 'guardian']);   // their seams burn with their heat (creatures.js), not a pulse
 const META = {};
 function extraGeo(old, def, keep) {
   const g = old.geo, P = g.attributes.position, N = g.attributes.normal, Cc = g.attributes.color, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight;
@@ -993,7 +997,7 @@ function remastered(type, q) {
   if (!META[type]) { const m = { ...old }; delete m.geo; delete m.def; META[type] = m; }
   const extra = EXTRA[type] ? extraGeo(old, R.def, EXTRA[type]) : null; old.geo.dispose();
   const L = R.lods, geo = L[Math.max(0, L.length - 1 - q)];
-  return { ...META[type], def: R.def, geo, extra, baked: R.tex, bakedGlow: R.glow, glowColor: GLOW_COLOR[type], atlas: null, remastered: true };
+  return { ...META[type], def: R.def, geo, extra, baked: R.tex, bakedGlow: R.glow, glowColor: GLOW_COLOR[type], glowHeat: GLOW_HEAT.has(type), atlas: null, remastered: true, glowFromMap: false };
 }
 export function getRig(type, q) {
   const k = type + q;
@@ -1004,6 +1008,15 @@ export function getRig(type, q) {
     for (const a of ['pin', 'decal']) if (r.geo.attributes[a]) r.geo.deleteAttribute(a); // only projectUV reads them
   }
   return cache[k];
+}
+// the procedural rig's textured body as it is projected (for tools/remaster/rebake: its UVs into the sheet's views)
+export function rigExport(type, q) {
+  const k = type + q + 'x', r = BUILDERS[type](q);
+  if (TEXTURED.has(type) && ATLAS[type]) projectUV(r.geo, ATLAS[type], r.uvExtra || [], r.uvOpts || {});
+  const g = r.geo, g0 = g.groups.find((gr) => gr.materialIndex === 0), A = (n, c) => Array.from(g.attributes[n].array.slice(g0.start * c, (g0.start + g0.count) * c));
+  const out = { def: r.def, atlas: TEXTURED.has(type) && ATLAS[type] ? type : null, tris: g0.count / 3, pos: A('position', 3), nrm: A('normal', 3), si: A('skinIndex', 4), sw: A('skinWeight', 4) };
+  if (g.attributes.uvF) Object.assign(out, { uvF: A('uvF', 2), uvS: A('uvS', 2), uvT: A('uvT', 2), uvW: A('uvW', 3) });
+  g.dispose(); return out;
 }
 export function rigTris(type, q) { const r = getRig(type, q); return r.geo.userData.tris + (r.extra ? r.extra.userData.tris : 0); }
 export function makeSkeleton(def) {
