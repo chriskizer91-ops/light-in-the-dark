@@ -201,6 +201,8 @@ export class GeoBuilder {
       }
     }
   }
+  // triangles already placed (flat arrays of positions and colours), e.g. a pack model's (forest.js ffTris)
+  addRaw(r, j = 0.08) { const f = 1 + (rnd() * 2 - 1) * j; for (let i = 0; i < r.pos.length; i++) { this.pos.push(r.pos[i]); this.col.push(r.col[i] * f); } }
   tri(ax, ay, az, bx, by, bz, cx, cy, cz, c, j = 0.1) {
     const f = 1 + (rnd() * 2 - 1) * j;
     this.pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);

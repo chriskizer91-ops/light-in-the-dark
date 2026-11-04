@@ -21,8 +21,22 @@ Three.js r170, no other runtime dependencies. Models, most textures and all audi
 
 ```bash
 npm install
-node build.mjs          # -> dist/hollow-crown-3d.html (open it in any browser)
+node build.mjs          # -> dist/hollow-crown-3d.html (one file: open it in any browser)
+                        #    dist/web/ (index.html + assets/: the remastered creatures and the forest pack as their own files)
 ```
+
+## The remaster (Nov 2026)
+
+**Creatures, rebuilt in Blender from their sheets** (`tools/remaster/`, done so far: the wolf). For each one:
+
+1. `carve.py` + `creatures/<name>.py` carve a body that matches every view of the reference sheet: each part (body, legs, tail, ears) is lofted through its own silhouette in two views with round (superellipse) sections smoothed along the part, the parts are joined with a fillet, and the whole is held inside every view's outline. A far leg drawn beside the near one is dropped (each leg is held to its own depth). `sheet.py` calibrates the views in metres and cleans their outlines with GrabCut.
+2. `bl_process.py` (Blender as a Python module, `pip install bpy`) remeshes it, decimates the top LOD, unwraps it, bakes its surface position, normal and ambient occlusion, and binds it to the creature's existing bones with Blender's automatic (heat) weights, so the procedural animation in `creatures.js` drives it unchanged.
+3. `paint.py` paints the UV layout from the sheet: every texel takes the views that can actually see it (a depth test per view, so the inside of a leg is not painted with the outside), blended by how squarely it faces each, then the ambient occlusion.
+4. `export.py` + `pack.mjs` quantize the mesh, make the lower LODs as meshopt simplifications of the top one (they share its vertices, skin and UVs), meshopt-encode and deflate it: `src/assets/remaster/<name>.bin` and `<name>.webp`.
+
+`python3 tools/remaster/run.py wolf` runs all four. `src/remaster.js` decodes them at startup; a creature without one keeps its procedural body.
+
+**The woods: the Field & Forest pack** (Christopher's, from his Forest Builder). `tools/forest.py` repacks its temperate trees, bushes and grass (spruce, ponderosa pine, aspen, bur oak, cottonwood, dead snag, weeping willow, oleander, sagebrush, meadow and dry grass) into `src/assets/forest/forest.bin`; `src/forest.js` decodes it. Floors I–III draw each tree's far model wherever the lantern touches it and its near model when it is lit and close (`ffLod` in `world3d.js`): ponderosa at the clearings' edges with spruce behind, aspen, snags, an oak or cottonwood for each elder, a willow by each pond, oleander and sage as the thickets, and the pack's grass tufts in the ground cover. The desert plants and the modern props are left out.
 
 ## Files
 
@@ -52,7 +66,7 @@ Triangles per creature, by DETAIL tier (LOW / HIGH / ULTRA / MAX):
 
 | Creature | LOW | HIGH | ULTRA | MAX |
 |---|---|---|---|---|
-| Wolf | 2.1k | 6.0k | 11.3k | 18.9k |
+| Wolf (remastered) | 3.2k | 8.0k | 18.0k | 32.0k |
 | Shade leech | 1.3k | 3.7k | 6.8k | 11.1k |
 | Ember moth | 1.2k | 3.1k | 5.0k | 8.6k |
 | Bandit | 3.1k | 7.2k | 11.8k | 19.5k |

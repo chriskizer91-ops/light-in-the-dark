@@ -7,6 +7,8 @@ import { buildStory, updateStory, slashStory, storyCreatureDown, ST } from './st
 import { spawnCreatures, updateCreatures, CR, damageEnemy, exposeEnemy, interruptEnemy, addCreature, refreshCreatureDetail, creatureTris } from './creatures.js';
 import { updateFX, burst } from './fx.js';
 import { rigTris } from './rigs.js';
+import { remasterReady, remasterStatus, REM } from './remaster.js';
+import { FF } from './forest.js';
 import { G, P, H, BAL, S, resetStory, DF, DIFFS, setDifficulty } from './state.js';
 import { initAudio, updateAudio, sfx, setSound, AU, setAmbience } from './audio.js';
 import { readMove, A, tryLock } from './input.js';
@@ -607,13 +609,19 @@ function runFrame(now, doRender, fixedDt) {
   updateStats(); drawXray();
 }
 
-// boot
+// boot: the remastered creatures are decoded first (a moment), then the title wolf can be built
 resize();
 applySetting('psx'); applySetting('stats'); applySetting('xray'); applySetting('ring'); setDetail(settings.detail);
-toMenu();
-requestAnimationFrame(frame);
-
-// hook for automated playtesting
-window.__crown3d = { G, P, ST, S, NPCS, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris, descend, nextFloor,
-  measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: creatureTris(), blocks: W.ruins && W.ruins.blocks ? W.ruins.blocks.drawn : 0, occluded: W.occluded || 0 }; },
-  step(sec, render = true) { let n = Math.round(sec * 60), now = lastT; for (let i = 0; i < n; i++) { now += 1000 / 60; runFrame(now, false, 1 / 60); } if (render) runFrame(now + 1000 / 60, true, 1 / 60); } };
+for (const id of ['startBtn', 'startBtn4', 'pickBtn']) $(id).disabled = true;
+$('startBtn').dataset.label = $('startBtn').textContent; $('startBtn').textContent = 'WAKING THE CREATURES…';
+remasterReady.then(() => {
+  for (const id of ['startBtn', 'startBtn4', 'pickBtn']) $(id).disabled = false;
+  $('startBtn').textContent = $('startBtn').dataset.label;
+  toMenu();
+  requestAnimationFrame(frame);
+  // hook for automated playtesting
+  window.__crown3d = { G, P, ST, S, NPCS, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris, descend, nextFloor,
+    measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: creatureTris(), blocks: W.ruins && W.ruins.blocks ? W.ruins.blocks.drawn : 0, occluded: W.occluded || 0 }; },
+    step(sec, render = true) { let n = Math.round(sec * 60), now = lastT; for (let i = 0; i < n; i++) { now += 1000 / 60; runFrame(now, false, 1 / 60); } if (render) runFrame(now + 1000 / 60, true, 1 / 60); } };
+  window.__crown3d.remaster = remasterStatus; window.__crown3d.FF = FF; window.__crown3d.REM = REM;
+});

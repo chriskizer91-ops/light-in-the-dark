@@ -1,6 +1,7 @@
 import { PANELS } from './assets/index.js';
 import { houseGeo, wellGeo, stallGeo, cartGeo, fencePiece, palisade, gateGeo, fieldGeo, logGeo, postGeo, mudTexture, cobbleTexture, trailTexture } from './village.js';
 import { ash, THREE, scene, camera, renderer, canvasTex, glowTex, flameTex, matVC, matFoliage, psx, GeoBuilder, T, M, col, srand, rnd, rr, mr, clamp, lerp, settings, rotYOfHeading, TAU } from './engine.js';
+import { FF, matLeaf } from './forest.js';
 import { pineGeo, birchGeo, deadGeo, boulderGeo, elderGeo, thicketGeo, pineHi, birchHi, deadHi, boulderHi, elderHi, coverVariants, COVER_CELL } from './trees.js';
 import { LV, TILE, idx, inBounds, lineOfSight, isWalkable } from './level.js';
 import { lantern, inBeam, beamAt, NEAR_R } from './lantern.js';
@@ -15,9 +16,9 @@ import { buildRuins, computeSeen, anySeen, seenAt, footprint, ensureBlocks, upda
 
 export const DETAIL = {
   low: { q: 0, lod: 0, cover: 0, blocks: 0, label: 'LOW' },
-  high: { q: 1, lod: 24, cover: 18, blocks: 14, label: 'HIGH' },
-  ultra: { q: 2, lod: 30, cover: 24, blocks: 20, label: 'ULTRA' },
-  max: { q: 3, lod: 40, cover: 32, blocks: 28, label: 'MAX' },
+  high: { q: 1, lod: 24, ffLod: 13, cover: 18, blocks: 14, label: 'HIGH' },
+  ultra: { q: 2, lod: 30, ffLod: 20, cover: 24, blocks: 20, label: 'ULTRA' },
+  max: { q: 3, lod: 40, ffLod: 32, cover: 32, blocks: 28, label: 'MAX' },
 };
 const CELL = 8;           // culling grid cell (m)
 const BRAZIER_R = 9;      // how far a lit brazier's light reaches (m)
@@ -44,7 +45,7 @@ export function disposeWorld() {
   if (!W) return;
   W.group.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); });
   W.disposables.forEach((d) => d.dispose());
-  for (const k in W.hi) W.hi[k].dispose();
+  for (const k in W.hi) if (!W.hi[k].userData.shared) W.hi[k].dispose();
   if (W.cover) W.cover.meshes.forEach((m) => m.dispose());
   for (const l of W.lights) scene.remove(l);
   scene.remove(W.group);
@@ -81,14 +82,14 @@ export function buildWorld() {
 // a lo-poly mesh that swaps to its hi-poly twin when it is lit and close (trees, pillars, statues)
 function placeLod(ctx, geo, x, z, s, key, opt = {}) {
   const { group, addCullable } = ctx;
-  const mesh = new THREE.Mesh(geo, matVC);
+  const mesh = new THREE.Mesh(geo, geo.groups.length ? [matVC, matLeaf] : matVC);   // pack models: bark, then two-sided leaves
   mesh.position.set(x, opt.y || 0, z); mesh.rotation.y = opt.yaw !== undefined ? opt.yaw : rr(0, 6.28); mesh.scale.set(s, s * (opt.sy || 1), s);
   mesh.castShadow = opt.cast !== false; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; mesh.updateMatrix(); group.add(mesh);
   if (!geo.boundingBox) geo.computeBoundingBox();
-  const bb = geo.boundingBox, y0 = opt.y || 0, H = bb.max.y * s * (opt.sy || 1), Rh = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) * s;
+  const bb = opt.hi ? geo.boundingBox.clone().union(opt.hi.boundingBox) : geo.boundingBox, y0 = opt.y || 0, H = bb.max.y * s * (opt.sy || 1), Rh = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) * s;
   const n = clamp(Math.ceil(H / (2.2 * Rh)), 1, 4), seg = H / n, sr = Math.sqrt(Rh * Rh + (seg / 2) ** 2), ys = [];
   for (let i = 0; i < n; i++) ys.push(y0 + seg * (i + 0.5));
-  return addCullable({ mesh, cx: x, cy: y0 + H / 2, cz: z, r: Math.sqrt(Rh * Rh + (H / 2) ** 2), fr: Rh, ys, sr, tree: opt.tree !== false, lo: geo, hiKey: key });
+  return addCullable({ mesh, cx: x, cy: y0 + H / 2, cz: z, r: Math.sqrt(Rh * Rh + (H / 2) ** 2), fr: Rh, ys, sr, tree: opt.tree !== false, lo: geo, hiKey: key, ff: !!opt.hi });
 }
 
 function buildWoods(ctx) {
@@ -110,6 +111,9 @@ function buildWoods(ctx) {
   const deads = [0, 1].map((v) => shared('dead' + v, () => deadGeo(v))), rocks = [0, 1, 2].map((v) => shared('rock' + v, () => boulderGeo(0x6e6c62)));
   const thickets = [0, 1, 2, 3].map((v) => shared('thicket' + v, () => thicketGeo(v))), elders = [0, 1].map((v) => shared('elder' + v, () => elderGeo(v)));
   const place = (geo, x, z, s, key, opt = {}) => placeLod(ctx, geo, x, z, s, key, opt);
+  // the Field & Forest pack (forest.js): its far model wherever the light touches, its near one when lit and close
+  const pack = !!FF.spruce, ffKeys = new Set();
+  const ffTree = (name, x, z, s, sy = 1, opt = {}) => { ffKeys.add(name); return placeLod(ctx, FF[name + '_far'], x, z, s, 'ff_' + name, { sy, hi: FF[name], ...opt }); };
   const DEN = village ? [0, 0, 0, 0.5, 0.55, 0.5, 0.4] : [0, 0.95, 0.9, 0.8, 0.65, 0.5, 0.32];
   const built = village ? villageLots() : null;
   for (let ty = 0; ty < LV.h; ty++) for (let tx = 0; tx < LV.w; tx++) {
@@ -118,15 +122,27 @@ function buildWoods(ctx) {
     const cx = (tx + 0.5) * TILE, cz = (ty + 0.5) * TILE;
     if (rnd() < DEN[d]) {
       const p = rnd(), x = cx + rr(-0.6, 0.6), z = cz + rr(-0.6, 0.6), s = rr(0.8, 1.3);
-      if (p < 0.58) { const v = (rnd() * 4) | 0; place(pines[v], x, z, s, 'pine' + v); }
+      if (pack) { // Field & Forest: ponderosa (high crowns) at the clearing's edge, spruce behind them, aspen, snags
+        const sy = rr(0.9, 1.12);
+        if (p < 0.58) { if (d === 1 && rnd() < 0.7) ffTree('ponderosa', x, z, rr(0.44, 0.56), sy); else ffTree('spruce', x, z, rr(0.48, 0.62), sy); }
+        else if (p < 0.76) ffTree('aspen', x, z, rr(0.55, 0.7), sy);
+        else ffTree('snag', x, z, rr(0.75, 1.1), sy);
+      }
+      else if (p < 0.58) { const v = (rnd() * 4) | 0; place(pines[v], x, z, s, 'pine' + v); }
       else if (p < 0.76) { const v = (rnd() * 2) | 0; place(birches[v], x, z, s * 0.95, 'birch' + v); }
       else { const v = (rnd() * 2) | 0; place(deads[v], x, z, s, 'dead' + v); }
     }
-    if (!village && ((d === 1 && rnd() < 0.75) || (d === 2 && rnd() < 0.4))) { const v = (rnd() * 4) | 0; place(thickets[v], cx + rr(-0.5, 0.5), cz + rr(-0.5, 0.5), rr(0.9, 1.4), null, { cast: false }); }
+    if (!village && ((d === 1 && rnd() < 0.75) || (d === 2 && rnd() < 0.4))) {
+      if (pack) { const ol = rnd() < 0.6; ffTree(ol ? 'oleander' : 'sage', cx + rr(-0.5, 0.5), cz + rr(-0.5, 0.5), ol ? rr(0.7, 1.0) : rr(0.9, 1.3), rr(0.85, 1.1), { cast: false, tree: false }); }
+      else { const v = (rnd() * 4) | 0; place(thickets[v], cx + rr(-0.5, 0.5), cz + rr(-0.5, 0.5), rr(0.9, 1.4), null, { cast: false }); }
+    }
     if (d === 1 && rnd() < 0.07) { const v = (rnd() * 3) | 0; place(rocks[v], cx + rr(-0.4, 0.4), cz + rr(-0.4, 0.4), rr(0.6, 1.3), 'rock' + v); }
   }
   // elders: the great trunks standing inside clearings (the Crown's pillars)
-  if (!village) for (const s of LV.structures) { const v = (rnd() * 2) | 0; place(elders[v], s.x, s.z, rr(0.95, 1.15), 'elder' + v); }
+  if (!village) for (const s of LV.structures) {
+    if (pack) { const c = rnd() < 0.5; ffTree(c ? 'cottonwood' : 'oak', s.x, s.z, c ? rr(0.62, 0.72) : rr(0.62, 0.72), rr(0.95, 1.1)); }
+    else { const v = (rnd() * 2) | 0; place(elders[v], s.x, s.z, rr(0.95, 1.15), 'elder' + v); }
+  }
   // a few stones and stumps out in the open (no collision: knee-high at most)
   if (!village) for (const r of LV.rooms) for (let i = 0; i < 2; i++) {
     const tx = Math.floor(rr(r.x + 1, r.x + r.w - 1)), ty = Math.floor(rr(r.y + 1, r.y + r.h - 1));
@@ -157,6 +173,7 @@ function buildWoods(ctx) {
       for (let i = 0; i < n; i++) { const s = lerp(d.small ? 0.36 : 0.55, 0.14, i / n); b.add(T.dode, M(rr(-0.15, 0.15), 0.15 + i * 0.16, rr(-0.15, 0.15), rr(0, 3), rr(0, 6), 0, s, s * 0.6, s), stone, 0.15); }
       if (!d.small) b.limb(T.box, 0.6, 0, 0.2, 1.3, 0.05, 0.25, d.yaw, col(0x4a3a2a), 0.1);
     } else if (d.kind === 'pond') {
+      if (pack) { const a = rr(0, 6.28); ffTree('willow', d.x + Math.cos(a) * (d.rx + 1.2), d.z + Math.sin(a) * (d.rz + 1.2), rr(0.42, 0.5), 1); }
       const reed = col(0x4a5a30);
       for (let i = 0; i < 40; i++) { const a = rr(0, 6.28), k = rr(0.9, 1.05); b.add(T.blade, M(Math.cos(a) * d.rx * k, 0, Math.sin(a) * d.rz * k, rr(0, 0.3), rr(0, 6.28), 0, 0.04, rr(0.5, 1.1), 0.5), reed, 0.15); }
       const pm = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshPhongMaterial({ color: 0x0b1416, specular: 0x8899aa, shininess: 90, dithering: true }));
@@ -177,6 +194,7 @@ function buildWoods(ctx) {
     mesh.matrixAutoUpdate = false; mesh.updateMatrix(); group.add(mesh);
     const bs = mesh.geometry.boundingSphere; addCullable({ mesh, cx: d.x + bs.center.x, cy: bs.center.y, cz: d.z + bs.center.z, r: bs.radius });
   }
+  for (const k of ffKeys) W.hiMake['ff_' + k] = () => FF[k];   // the pack's near models: shared, never disposed
 }
 
 // ---------------------------------------------------------------------
@@ -454,7 +472,7 @@ export function ensureDetail() {
   const q = DETAIL[settings.detail].q;
   if (W.hiQ === q) return;
   for (const o of W.cullables) if (o.lo) { o.mesh.geometry = o.lo; o.mesh.castShadow = true; }
-  for (const k in W.hi) W.hi[k].dispose();
+  for (const k in W.hi) if (!W.hi[k].userData.shared) W.hi[k].dispose();
   W.hi = {};
   if (W.cover) { for (const m of W.cover.meshes) { W.group.remove(m); m.geometry.dispose(); m.dispose(); } W.cover = null; }
   for (const p of W.proxies) { W.group.remove(p); } W.proxies = [];
@@ -569,7 +587,7 @@ function silhouette(o) {
   return false;
 }
 export function updateCulling() {
-  const cam = camera.position, D = DETAIL[settings.detail], useHi = D.q > 0 && W.hiQ === D.q, lod2 = D.lod * D.lod;
+  const cam = camera.position, D = DETAIL[settings.detail], useHi = D.q > 0 && W.hiQ === D.q, lod2 = D.lod * D.lod, ffLod2 = (D.ffLod || D.lod) ** 2;
   const R = W.ruins, occl = !!R && settings.culling;
   if (R) computeSeen(R);
   for (const o of W.shown) o.mesh.visible = false;
@@ -604,7 +622,7 @@ export function updateCulling() {
     o.mesh.visible = true; W.shown.push(o); n++;
     if (o.lo) { // level of detail: hi-poly only when it is visible AND close
       let hi = false;
-      if (useHi && o.hiKey) { const dx = o.cx - cam.x, dz = o.cz - cam.z; hi = dx * dx + dz * dz < lod2; }
+      if (useHi && o.hiKey) { const dx = o.cx - cam.x, dz = o.cz - cam.z; hi = dx * dx + dz * dz < (o.ff ? ffLod2 : lod2); }   // the pack's near trees are heavy: a shorter reach
       const g = hi ? W.hi[o.hiKey] || o.lo : o.lo;
       if (o.mesh.geometry !== g) o.mesh.geometry = g;
       const prox = hi && settings.proxies && hiN < W.proxies.length;

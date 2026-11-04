@@ -1,6 +1,7 @@
 import { THREE, rnd, rr, ri, srand, clamp, lerp, nz3, TAU } from './engine.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ATLAS, FIG } from './assets/index.js';
+import { REM } from './remaster.js';
 
 // =====================================================================
 //  CREATURE RIGS — detailed, skinned, procedural.
@@ -177,7 +178,8 @@ if (typeof document !== 'undefined') for (const k in ATLAS) { atlasTexture(k, AT
 // the body material for a rig: textured from its atlas when it has one (vertex colours otherwise).
 // Rigs with glowFromMap light the molten seams painted into their texture: m.userData.glow sets how hot.
 export function rigMaterial(rig, post = (m) => m) {
-  const m = post(new THREE.MeshStandardMaterial({ vertexColors: !rig.atlas, roughness: rig.roughness, metalness: 0, side: rig.side, dithering: true, emissive: 0x000000 }));
+  const m = post(new THREE.MeshStandardMaterial({ vertexColors: !rig.atlas && !rig.baked, roughness: rig.roughness, metalness: 0, side: rig.side, dithering: true, emissive: 0x000000 }));
+  if (rig.baked) { m.map = m.bumpMap = rig.baked; m.bumpScale = rig.bump ?? 1.2; return m; }   // a remastered body: its own painted texture
   if (!rig.atlas) return m;
   m.map = m.bumpMap = atlasTexture(rig.atlasName, rig.atlas.url); m.bumpScale = rig.bump ?? 1.5;
   const glow = rig.glowFromMap && rig.atlas.glowUrl ? (m.userData.glow = { value: 0 }) : null, prev = m.onBeforeCompile, key = m.customProgramCacheKey;
@@ -906,8 +908,18 @@ function figure(q, who) {
 const BUILDERS = { wolf, leech, moth, bandit: (q) => bandit(q, false), leader: (q) => bandit(q, true), sentinel: (q) => sentinel(q, false), guardian: (q) => sentinel(q, true), hound, maren: (q) => figure(q, 'maren'), sev: (q) => figure(q, 'sev'), lyn: (q) => figure(q, 'lyn'), ged: (q) => figure(q, 'ged'), girl: (q) => figure(q, 'girl'), wraith: (q) => figure(q, 'wraith'), king: (q) => figure(q, 'king'), witness: (q) => figure(q, 'witness'), choir };
 const cache = {};
 export const TEXTURED = new Set(['wolf', 'bandit', 'leader', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl', 'wraith', 'king', 'witness', 'choir']); // leech: its atlas is built (tools/atlas.py), body not yet refit
+// a remastered creature (remaster.js): its carved, skinned body at this quality, with the procedural rig's
+// eyes, accents and the rest. The DETAIL levels LOW / HIGH / ULTRA / MAX take the LODs from the bottom up.
+const META = {};
+function remastered(type, q) {
+  const R = REM[type];
+  if (!META[type]) { const old = BUILDERS[type](0); old.geo.dispose(); delete old.geo; delete old.def; META[type] = old; }
+  const L = R.lods, geo = L[Math.max(0, L.length - 1 - q)];
+  return { ...META[type], def: R.def, geo, baked: R.tex, atlas: null, remastered: true };
+}
 export function getRig(type, q) {
   const k = type + q;
+  if (!cache[k] && REM[type]) cache[k] = remastered(type, q);
   if (!cache[k]) {
     const r = (cache[k] = BUILDERS[type](q));
     if (TEXTURED.has(type) && ATLAS[type]) { projectUV(r.geo, ATLAS[type], r.uvExtra || [], r.uvOpts || {}); r.atlas = ATLAS[type]; r.atlasName = type; }
