@@ -2,6 +2,7 @@ import { THREE, rnd, rr, ri, srand, clamp, lerp, nz3, TAU } from './engine.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ATLAS, FIG } from './assets/index.js';
 import { REM } from './remaster.js';
+import mothWingsUrl from './assets/moth_wings.webp'; import mothGlowUrl from './assets/moth_glow.webp'; import WINGS from './assets/moth_wings.json';
 
 // =====================================================================
 //  CREATURE RIGS — detailed, skinned, procedural.
@@ -79,7 +80,8 @@ const cone = (sides, r = 1, h = 1) => { const g = new THREE.ConeGeometry(r, h, s
 export class RigBuilder {
   constructor(def) {
     this.def = def; this.bi = {}; def.forEach((b, i) => (this.bi[b.name] = i));
-    this.slots = [0, 1, 2].map(() => ({ p: [], n: [], c: [], si: [], sw: [], pin: [], dec: [] }));
+    this.slots = [0, 1, 2].map(() => ({ p: [], n: [], c: [], si: [], sw: [], pin: [], dec: [], uv: [] }));
+    this.defUV = [0, 0];   // pieces without their own UVs sample here (a rig with a texture puts a white texel at it)
   }
   // bind: a bone name, or (x,y,z) => [bone, w, bone2, w2]. color: THREE.Color, [r,g,b], or (x,y,z,nx,ny,nz) => colour
   add(geo, bind, color, o = {}) {
@@ -91,6 +93,7 @@ export class RigBuilder {
       const x = P.getX(i), y = P.getY(i), z = P.getZ(i), nx = N.getX(i), ny = N.getY(i), nz = N.getZ(i);
       S.p.push(x, y, z); S.n.push(nx, ny, nz); if (o.pin) S.pin.push(o.pin.x, o.pin.y, o.pin.z); else S.pin.push(x, y, z);
       if (o.decal) { const d = o.decal(x, y, z); S.dec.push(d[0], d[1], 1); } else S.dec.push(0, 0, 0);
+      if (o.uv) { const u = o.uv(i); S.uv.push(u[0], u[1]); this.hasUV = true; } else S.uv.push(this.defUV[0], this.defUV[1]);
       let c = typeof color === 'function' ? color(x, y, z, nx, ny, nz) : color;
       if (c.isColor) S.c.push(c.r, c.g, c.b); else S.c.push(c[0], c[1], c[2]);
       const b = typeof bind === 'function' ? bind(x, y, z) : [bind, 1];
@@ -99,7 +102,7 @@ export class RigBuilder {
     g.dispose();
   }
   build() {
-    const A = { p: [], n: [], c: [], si: [], sw: [], pin: [], dec: [] }, g = new THREE.BufferGeometry(); let start = 0;
+    const A = { p: [], n: [], c: [], si: [], sw: [], pin: [], dec: [], uv: [] }, g = new THREE.BufferGeometry(); let start = 0;
     this.slots.forEach((s, k) => {
       const cnt = s.p.length / 3; if (!cnt) return;
       for (const key in A) A[key] = A[key].concat(s[key]);
@@ -110,6 +113,7 @@ export class RigBuilder {
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(A.si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(A.sw, 4));
     if (this.pinned) g.setAttribute('pin', new THREE.Float32BufferAttribute(A.pin, 3)); // where fur takes its colour from (projectUV)
     if (this.decaled) g.setAttribute('decal', new THREE.Float32BufferAttribute(A.dec, 3)); // pieces with their own picture (projectUV)
+    if (this.hasUV) g.setAttribute('uv', new THREE.Float32BufferAttribute(A.uv, 2));       // pieces mapped onto a texture of their own (the moth's wings)
     g.computeBoundingSphere(); g.userData.keep = true; g.userData.tris = start / 3;
     return g;
   }
@@ -178,8 +182,21 @@ if (typeof document !== 'undefined') for (const k in ATLAS) { atlasTexture(k, AT
 // the body material for a rig: textured from its atlas when it has one (vertex colours otherwise).
 // Rigs with glowFromMap light the molten seams painted into their texture: m.userData.glow sets how hot.
 export function rigMaterial(rig, post = (m) => m) {
-  const m = post(new THREE.MeshStandardMaterial({ vertexColors: !rig.atlas && !rig.baked, roughness: rig.roughness, metalness: 0, side: rig.side, dithering: true, emissive: 0x000000 }));
-  if (rig.baked) { m.map = m.bumpMap = rig.baked; m.bumpScale = rig.bump ?? 1.2; return m; }   // a remastered body: its own painted texture
+  const m = post(new THREE.MeshStandardMaterial({ vertexColors: (!rig.atlas && !rig.baked) || !!rig.vertexColors, roughness: rig.roughness, metalness: 0, side: rig.side, dithering: true, emissive: 0x000000, alphaTest: rig.alphaTest || 0 }));
+  if (rig.baked) {   // a remastered body: its own painted texture (and, for some, a mask of what glows on its own)
+    m.map = m.bumpMap = rig.baked; m.bumpScale = rig.bump ?? 1.2;
+    if (rig.alphaTest) m.shadowSide = THREE.DoubleSide;
+    if (rig.bakedGlow) {
+      const u = (m.userData.glowB = { value: 1 }), col = { value: new THREE.Color(rig.glowColor || 0xa070ff) }, gm = { value: rig.bakedGlow }, prev = m.onBeforeCompile, key = m.customProgramCacheKey;
+      m.onBeforeCompile = (sh, r) => {
+        if (prev) prev.call(m, sh, r);
+        sh.uniforms.uGlowB = u; sh.uniforms.uGlowCol = col; sh.uniforms.glowMapB = gm;
+        sh.fragmentShader = 'uniform float uGlowB;\nuniform vec3 uGlowCol;\nuniform sampler2D glowMapB;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += uGlowCol * texture2D(glowMapB, vMapUv).r * uGlowB;');
+      };
+      m.customProgramCacheKey = () => (key ? key.call(m) : '') + '-bglow';
+    }
+    return m;
+  }
   if (!rig.atlas) return m;
   m.map = m.bumpMap = atlasTexture(rig.atlasName, rig.atlas.url); m.bumpScale = rig.bump ?? 1.5;
   const glow = rig.glowFromMap && rig.atlas.glowUrl ? (m.userData.glow = { value: 0 }) : null, prev = m.onBeforeCompile, key = m.customProgramCacheKey;
@@ -383,6 +400,7 @@ function moth(q) {
   const def = bones([['root', null, 0, 0, 0], ['thorax', 'root', 0, 0, 0], ['head', 'thorax', 0, 0.01, 0.13], ['antL', 'head', 0.03, 0.05, 0.17], ['antR', 'head', -0.03, 0.05, 0.17],
     ['abd1', 'thorax', 0, -0.01, -0.1], ['abd2', 'abd1', 0, -0.03, -0.3], ['fwL', 'thorax', 0.07, 0.03, 0.04], ['hwL', 'thorax', 0.06, 0.0, -0.05], ['fwR', 'thorax', -0.07, 0.03, 0.04], ['hwR', 'thorax', -0.06, 0.0, -0.05]]);
   const B = new RigBuilder(def), d = Q(q, [1, 2, 2, 3]), fuzz = C(0x8a7450), brown = C(0x3a2c1e), dark = C(0x1e140a), cream = C(0xb8a070), base = C(0x6a5232), ember = C(0xff8a30);
+  B.defUV = [WINGS.white[0], 1 - WINGS.white[1]];   // the fuzzy body keeps its vertex colours: it samples the atlas's white corner
   const tuft = (p, dir, len, r, bind, colr, slot = 0) => B.add(cone(3, r, len), bind, colr, { flat: true, matrix: along(p, dir), slot });
   B.add(blob(d), 'thorax', (x, y, z) => shade(brown, 0.8 + 0.4 * noise(x * 40, y * 40, z * 40)), { matrix: M(0, 0, 0, 0, 0, 0, 0.095, 0.09, 0.12) });
   for (let i = 0, n = Q(q, [8, 30, 60, 110]); i < n; i++) { const dir = new V3(rr(-1, 1), rr(-0.3, 1), rr(-1, 1)).normalize(), p = new V3(dir.x * 0.09, dir.y * 0.085, dir.z * 0.11); tuft(p, dir, rr(0.03, 0.055), 0.012, 'thorax', shade(fuzz, 0.75 + 0.35 * rnd())); }
@@ -402,14 +420,31 @@ function moth(q) {
     const sx = i % 2 ? 1 : -1, zi = 0.06 - Math.floor(i / 2) * 0.06;
     B.add(loft([{ p: [sx * 0.05, -0.06, zi], r: [0.008, 0.008] }, { p: [sx * 0.13, -0.08, zi + 0.03], r: [0.007, 0.007] }, { p: [sx * 0.16, -0.2, zi + 0.05], r: [0.004, 0.004] }], { radial: 4, rings: 5 }), 'thorax', dark);
   }
-  // wings: a grid shaped to an outline, patterned in vertex colour, with a smouldering eyespot
-  for (const [sx, fw, hw] of [[1, 'fwL', 'hwL'], [-1, 'fwR', 'hwR']]) {
-    wingIndexed(B, q, 0.62, (u) => 0.06 + 0.07 * u, (u) => 0.12 + 0.2 * Math.sin(Math.PI * (0.15 + 0.7 * u)), [0.62, 0.52], fw, sx, false, { base, dark, cream, ember });
-    wingIndexed(B, q, 0.46, (u) => -0.02 - 0.04 * u, (u) => 0.18 + 0.12 * Math.sin(Math.PI * u), [0.55, 0.5], hw, sx, true, { base, dark, cream, ember });
-  }
-  return { def, geo: B.build(), eyes: null, height: 0.6, roughness: 0.85, side: THREE.DoubleSide, accent: 'glow', glowBone: 'abd1' };
+  // wings: cut from the flat-wing sheet (CR06, tools/remaster/moth_wings.py): its painted wings on a cambered
+  // grid, the outline in the texture's alpha, the eyespot glowing from a mask of its own
+  for (const [sx, fw, hw] of [[1, 'fwL', 'hwL'], [-1, 'fwR', 'hwR']]) { wingCard(B, q, 'fore', sx, fw); wingCard(B, q, 'hind', sx, hw); }
+  return { def, geo: B.build(), eyes: null, height: 0.6, roughness: 0.85, side: THREE.DoubleSide, accent: 'glow', glowBone: 'abd1',
+    baked: wingTexture('wings', mothWingsUrl, true), bakedGlow: wingTexture('glow', mothGlowUrl, false), glowColor: 0xff8a30, vertexColors: true, alphaTest: 0.5, bump: 0.6 };
 }
 // wings are built per vertex (not per position) so the pattern survives de-indexing
+function wingTexture(k, url, srgb) { return atlasTexture('moth_' + k, url, srgb); }
+function wingCard(B, q, piece, sx, bone) {
+  const W = WINGS.pieces[piece], [x0, y0, x1, y1] = W.box, [u0, v0, u1, v1] = W.uv, nu = Q(q, [6, 12, 18, 26]), nv = Q(q, [4, 8, 12, 17]), hind = piece === 'hind';
+  const pt = (i, j) => {
+    const col = x0 + ((x1 - x0) * i) / nu, row = y0 + ((y1 - y0) * j) / nv, d = (WINGS.axis - col) / WINGS.ppm, k = d / 0.67;
+    return { p: [sx * d, (hind ? 0.022 : 0.03) + 0.028 * k * k + 0.008 * Math.sin(Math.PI * j / nv) * k, (WINGS.zrow - row) / WINGS.ppm], uv: [u0 + ((u1 - u0) * i) / nu, 1 - (v0 + ((v1 - v0) * j) / nv)] };
+  };
+  const pos = [], uv = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) for (const [a, b] of [[i, j], [i, j + 1], [i + 1, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) { const P = pt(a, b); pos.push(...P.p); uv.push(...P.uv); }
+  if (sx < 0) for (let t = 0; t < pos.length; t += 9) { for (const k of [0, 1, 2]) { const tmp = pos[t + 3 + k]; pos[t + 3 + k] = pos[t + 6 + k]; pos[t + 6 + k] = tmp; } const tu = uv.slice((t / 3 + 1) * 2, (t / 3 + 1) * 2 + 2); uv.splice((t / 3 + 1) * 2, 2, uv[(t / 3 + 2) * 2], uv[(t / 3 + 2) * 2 + 1]); uv.splice((t / 3 + 2) * 2, 2, tu[0], tu[1]); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  const gi = mergeVertices(g.clone()); gi.computeVertexNormals();
+  const nIdx = new Map(); { const P2 = gi.attributes.position, N2 = gi.attributes.normal; for (let i = 0; i < P2.count; i++) nIdx.set(P2.getX(i).toFixed(5) + ',' + P2.getY(i).toFixed(5) + ',' + P2.getZ(i).toFixed(5), [N2.getX(i), N2.getY(i), N2.getZ(i)]); }
+  g.computeVertexNormals(); const N = g.attributes.normal, PP = g.attributes.position;
+  for (let i = 0; i < PP.count; i++) { const n = nIdx.get(PP.getX(i).toFixed(5) + ',' + PP.getY(i).toFixed(5) + ',' + PP.getZ(i).toFixed(5)); if (n) N.setXYZ(i, n[0], n[1], n[2]); }
+  B.addRaw(g, bone, () => [1, 1, 1], (i) => [uv[i * 2], uv[i * 2 + 1]]);
+  gi.dispose(); g.dispose();
+}
 function wingIndexed(B, q, span, front, chord, spot, bone, sx, hind, P) {
   const su = Q(q, [5, 12, 18, 26]), sv = Q(q, [3, 7, 11, 15]);
   const surf = (u, v) => { const ch = chord(u) * (1 - Math.pow(u, 6) * 0.6); return [sx * (0.02 + u * span), 0.03 + 0.012 * Math.sin(Math.PI * v) * u + 0.03 * u * u, front(u) - v * ch + (hind ? -0.05 : 0.04)]; };
@@ -441,9 +476,11 @@ function wingIndexed(B, q, span, front, chord, spot, bone, sx, hind, P) {
 }
 // add a non-indexed geometry with its own normals and a per-vertex colour function
 RigBuilder.prototype.addRaw = function (g, bind, colorAt, slot = 0) {
+  let uvAt = null; if (typeof slot === 'function') { uvAt = slot; slot = 0; this.hasUV = true; }   // (g, bind, colour, uv(i)): a piece with its own UVs
   const P = g.attributes.position, N = g.attributes.normal, S = this.slots[slot];
   for (let i = 0; i < P.count; i++) {
     S.p.push(P.getX(i), P.getY(i), P.getZ(i)); S.pin.push(P.getX(i), P.getY(i), P.getZ(i)); S.dec.push(0, 0, 0); S.n.push(N.getX(i), N.getY(i), N.getZ(i)); S.c.push(...colorAt(i));
+    if (uvAt) { const u = uvAt(i); S.uv.push(u[0], u[1]); } else S.uv.push(this.defUV[0], this.defUV[1]);
     S.si.push(this.bi[bind], 0, 0, 0); S.sw.push(1, 0, 0, 0);
   }
   g.dispose();
@@ -910,12 +947,43 @@ const cache = {};
 export const TEXTURED = new Set(['wolf', 'bandit', 'leader', 'sentinel', 'guardian', 'hound', 'maren', 'sev', 'lyn', 'ged', 'girl', 'wraith', 'king', 'witness', 'choir']); // leech: its atlas is built (tools/atlas.py), body not yet refit
 // a remastered creature (remaster.js): its carved, skinned body at this quality, with the procedural rig's
 // eyes, accents and the rest. The DETAIL levels LOW / HIGH / ULTRA / MAX take the LODs from the bottom up.
+// Pieces of the procedural rig that the carved body keeps (they are not in the sheet's silhouette, or move on
+// their own): picked per triangle by (bone, slot, centroid y, z); drawn as a second skinned mesh on the same skeleton.
+const EXTRA = {
+  leech: (b) => /^t\d/.test(b),                                           // the tentacles round the mouth
+  wolf: (b, slot, y, z) => slot === 1 && y < 0.785 && z > 0.7,              // the teeth (the mouth opens)
+};
+const GLOW_COLOR = { leech: 0x9a6cff };
 const META = {};
+function extraGeo(old, def, keep) {
+  const g = old.geo, P = g.attributes.position, N = g.attributes.normal, Cc = g.attributes.color, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight;
+  const idx = {}; def.forEach((b, i) => (idx[b.name] = i));
+  const out = { p: [], n: [], c: [], si: [], sw: [] }, groups = [[], [], []];
+  for (const gr of g.groups) for (let t = gr.start; t < gr.start + gr.count; t += 3) {
+    const bone = old.def[SI.getX(t)].name, cy = (P.getY(t) + P.getY(t + 1) + P.getY(t + 2)) / 3, cz = (P.getZ(t) + P.getZ(t + 1) + P.getZ(t + 2)) / 3;
+    if (keep(bone, gr.materialIndex, cy, cz)) groups[Math.max(1, gr.materialIndex)].push(t);
+  }
+  const geo = new THREE.BufferGeometry(); let start = 0;
+  for (let k = 1; k < 3; k++) {
+    for (const t of groups[k]) for (let v = t; v < t + 3; v++) {
+      out.p.push(P.getX(v), P.getY(v), P.getZ(v)); out.n.push(N.getX(v), N.getY(v), N.getZ(v)); out.c.push(Cc.getX(v), Cc.getY(v), Cc.getZ(v));
+      for (let j = 0; j < 4; j++) { const w = SW.getComponent(v, j), bi = idx[old.def[SI.getComponent(v, j)].name]; out.si.push(w > 0 && bi !== undefined ? bi : 0); out.sw.push(bi !== undefined ? w : 0); }
+    }
+    if (groups[k].length) geo.addGroup(start, groups[k].length * 3, k); start += groups[k].length * 3;
+  }
+  if (!start) return null;
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(out.p, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(out.n, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(out.c, 3));
+  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(out.si, 4)); geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(out.sw, 4));
+  geo.computeBoundingSphere(); geo.userData.keep = true; geo.userData.tris = start / 3;
+  return geo;
+}
 function remastered(type, q) {
-  const R = REM[type];
-  if (!META[type]) { const old = BUILDERS[type](0); old.geo.dispose(); delete old.geo; delete old.def; META[type] = old; }
+  const R = REM[type], key = type + q;
+  const old = BUILDERS[type](q);
+  if (!META[type]) { const m = { ...old }; delete m.geo; delete m.def; META[type] = m; }
+  const extra = EXTRA[type] ? extraGeo(old, R.def, EXTRA[type]) : null; old.geo.dispose();
   const L = R.lods, geo = L[Math.max(0, L.length - 1 - q)];
-  return { ...META[type], def: R.def, geo, baked: R.tex, atlas: null, remastered: true };
+  return { ...META[type], def: R.def, geo, extra, baked: R.tex, bakedGlow: R.glow, glowColor: GLOW_COLOR[type], atlas: null, remastered: true };
 }
 export function getRig(type, q) {
   const k = type + q;
@@ -927,7 +995,7 @@ export function getRig(type, q) {
   }
   return cache[k];
 }
-export function rigTris(type, q) { return getRig(type, q).geo.userData.tris; }
+export function rigTris(type, q) { const r = getRig(type, q); return r.geo.userData.tris + (r.extra ? r.extra.userData.tris : 0); }
 export function makeSkeleton(def) {
   const out = def.map((b) => { const bone = new THREE.Bone(); bone.name = b.name; return bone; }), by = {};
   def.forEach((b, i) => { by[b.name] = out[i]; });

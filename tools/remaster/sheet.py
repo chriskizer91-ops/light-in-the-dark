@@ -25,9 +25,10 @@ class View:
         if self.kind == 'side': return self.c0 + (self.zf - z) * p, self.g - y * p
         if self.kind == 'sideFlip': return self.c0 + (z - self.zb) * p, self.g - y * p
         if self.kind == 'top': return self.ax + x * p, self.r0 + (z - self.zt) * p
+        if self.kind == 'topL': return self.c0 + (self.zf - z) * self.ppmz, self.rax + x * self.ppmx   # a top view with the head to the left (own scales)
     # the 2D coordinates of the view's plane for a model point: (h, v) such that the view sees (h, v)
     def plane(self, x, y, z):
-        return {'front': (x, y), 'back': (x, y), 'side': (z, y), 'sideFlip': (z, y), 'top': (x, z)}[self.kind]
+        return {'front': (x, y), 'back': (x, y), 'side': (z, y), 'sideFlip': (z, y), 'top': (x, z), 'topL': (x, z)}[self.kind]
     def sample(self, arr, x, y, z, order=1):
         c, r = self.px(x, y, z)
         return ndi.map_coordinates(arr, [np.asarray(r, float), np.asarray(c, float)], order=order, mode='constant', cval=0)
@@ -56,7 +57,7 @@ def refine(img, m, iters=6):
     lab, n = ndi.label(out)
     if n > 1: out = lab == (np.bincount(lab.ravel())[1:].argmax() + 1)
     return ndi.binary_fill_holes(out) if False else out
-def load(sheet, order, height, seg_opts={}, top_len=None, nose_z=None, grabcut=True):
+def load(sheet, order, height, seg_opts={}, top_len=None, nose_z=None, grabcut=True, ppm=None, over={}):
     """order: the view kinds left to right as drawn. height: metres from the ground to the top of the side view.
     nose_z: the model z of the frontmost point (side views). Returns {kind: View}."""
     im, lab, comps = segment(REF + sheet + '.png', **seg_opts)
@@ -65,7 +66,8 @@ def load(sheet, order, height, seg_opts={}, top_len=None, nose_z=None, grabcut=T
     side = next(c for k, c in zip(order, comps) if k.startswith('side'))
     sm = lab == side['id']
     if grabcut: sm = refine(im.astype(np.uint8), sm)
-    ys = np.nonzero(sm.any(1))[0]; g = ys[-1]; ppm = (g - ys[0]) / height
+    ys = np.nonzero(sm.any(1))[0]; g = ys[-1]
+    if ppm is None: ppm = (g - ys[0]) / height   # else: read off the sheet's ruler
     for kind, c in zip(order, comps):
         m = lab == c['id']
         if grabcut: m = refine(im.astype(np.uint8), m)
@@ -77,4 +79,8 @@ def load(sheet, order, height, seg_opts={}, top_len=None, nose_z=None, grabcut=T
             V[kind] = View(kind, im, m, ppm, c0=c['x0'], zb=nose_z - (c['x1'] - c['x0']) / ppm, g=c['y1'] - 1)
         elif kind == 'top':
             V[kind] = View(kind, im, m, ppm, ax=mirror_axis(m), r0=c['y1'] - 1, zt=nose_z)
+        elif kind == 'topL':   # scales fixed below, from the other views
+            V['top'] = View(kind, im, m, ppm, c0=c['x0'], zf=nose_z, rax=mirror_axis(m.T), ppmz=ppm, ppmx=ppm)
+        k = 'top' if kind == 'topL' else kind
+        for a, v in over.get(k, {}).items(): setattr(V[k], a, v)
     return V

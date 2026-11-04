@@ -33,5 +33,11 @@ if 'pack' in steps:
     pk = os.path.join(out, 'pack'); export.export(out, pk, name, lods=1)
     subprocess.run(['node', os.path.join(HERE, 'pack.mjs'), pk, name, os.path.join(ASSETS, name + '.bin')] + [str(t) for t in C.LODS[1:]], check=True)
     from PIL import Image
-    Image.open(os.path.join(out, 'albedo.png')).save(os.path.join(ASSETS, name + '.webp'), quality=86, method=6)
+    alb = Image.open(os.path.join(out, 'albedo.png')); alb.save(os.path.join(ASSETS, name + '.webp'), quality=86, method=6)
+    if hasattr(C, 'glow'):   # what glows on its own: a mask the game lights (emissive)
+        g = np.clip(C.glow(np.asarray(alb.convert('RGB')).astype(np.float32)), 0, 1)
+        from scipy import ndimage as ndi
+        g = np.clip(ndi.gaussian_filter(ndi.grey_dilation(g, size=(3, 3)), 1.0) * 1.3, 0, 1)
+        Image.fromarray((g * 255).astype(np.uint8)).save(os.path.join(ASSETS, name + '_glow.webp'), quality=80)
+        log('glow mask', '%.1f%%' % (100 * (g > 0.3).mean()))
     log('packed', os.path.getsize(os.path.join(ASSETS, name + '.bin')) // 1024, 'KB +', os.path.getsize(os.path.join(ASSETS, name + '.webp')) // 1024, 'KB texture')

@@ -6,7 +6,7 @@ from PIL import Image
 from scipy import ndimage as ndi
 sys.path.insert(0, os.path.dirname(__file__)); sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from atlas import bleed
-DIRS = {'front': (0, 0, 1), 'back': (0, 0, -1), 'side': (1, 0, 0), 'sideR': (-1, 0, 0), 'sideFlip': (-1, 0, 0), 'sideFlipR': (1, 0, 0), 'top': (0, 1, 0)}
+DIRS = {'front': (0, 0, 1), 'back': (0, 0, -1), 'side': (1, 0, 0), 'sideR': (-1, 0, 0), 'sideFlip': (-1, 0, 0), 'sideFlipR': (1, 0, 0), 'top': (0, 1, 0), 'topL': (0, 1, 0)}
 
 def zbuffer(view, d, P, T):
     """Largest p.d per pixel of the view over the triangles (P vertices, T index triples)."""

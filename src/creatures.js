@@ -59,8 +59,11 @@ function buildVisual(e) {
   const accent = STONE(e) ? new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }) : null; // fissures that blaze when it is cracked
   const mesh = new THREE.SkinnedMesh(rig.geo, [body, GLOSS, accent || (rig.accent === 'steel' ? STEEL : GLOW)]);
   mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true; grp.add(mesh);
-  grp.updateMatrixWorld(true); mesh.bind(skeleton);
-  Object.assign(e, { grp, mesh, mat: body, glowU: body.userData.glow || null, b: by, tris: rig.geo.userData.tris, eyes: [], eyeMat: null, glow: null, blade: null, bladeMat: null, mouth: null, accentMat: accent, flames: [], flameMat: null });
+  // a remastered body keeps some procedural pieces (teeth, tentacles): a second mesh on the same skeleton
+  let extra = null;
+  if (rig.extra) { extra = new THREE.SkinnedMesh(rig.extra, [GLOSS, GLOSS, accent || (rig.accent === 'steel' ? STEEL : GLOW)]); extra.frustumCulled = false; extra.castShadow = true; extra.receiveShadow = true; mesh.add(extra); }
+  grp.updateMatrixWorld(true); mesh.bind(skeleton); if (extra) extra.bind(skeleton, mesh.bindMatrix);
+  Object.assign(e, { grp, mesh, mat: body, glowU: body.userData.glow || null, glowB: body.userData.glowB || null, b: by, tris: rig.geo.userData.tris + (rig.extra ? rig.extra.userData.tris : 0), eyes: [], eyeMat: null, glow: null, blade: null, bladeMat: null, mouth: null, accentMat: accent, flames: [], flameMat: null });
   grp.scale.setScalar(e.def.scale || 1);
   if (rig.candles) {
     e.flameMat = new THREE.SpriteMaterial({ map: flameTex, color: 0xffc070, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, toneMapped: false, opacity: 0 });
@@ -609,6 +612,7 @@ export function updateCreatures(dt, camera) {
     const heat = e.exposed > 0 ? 2.2 + 0.8 * Math.sin(T * 18) : 0.15 + 0.75 * e.wakeK * (0.85 + 0.15 * Math.sin(T * 3 + e.gait)) + (e.windup > 0 ? 0.6 : 0);
     if (e.accentMat) e.accentMat.color.setScalar(heat);
     if (e.glowU) e.glowU.value = heat; // the molten seams painted into its wax
+    if (e.glowB) e.glowB.value = (0.7 + 0.3 * Math.sin(T * 2.3 + (e.gait || 0))) * (e.dying ? Math.max(0, 1 - e.dying * 0.8) : 1);   // a remastered body's own glow (the leech's pustules)
     // the body is drawn only when something lights it (and, in the ruins, only if no wall is in the way)
     const inSight = !LV.solid || !settings.culling || e.los || e.dist < NEAR_R + 0.6;
     e.bodyVis = (inSight && (!settings.culling || litTest(e.x, e.sy + (e.type === 'moth' ? e.fy : 0), e.z, e.sr) || e.dist < NEAR_R + 0.6 || (e.type === 'moth' && e.dist < 9 && e.los) || (STONE(e) && e.wakeK > 0.6 && e.los && e.dist < 7))) || G.state === 'dead';

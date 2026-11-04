@@ -54,8 +54,8 @@ async function bytesOf(src) {
   if (src instanceof Uint8Array) return src;
   const r = await fetch(src); if (!r.ok) throw new Error(src + ' ' + r.status); return new Uint8Array(await r.arrayBuffer());
 }
-function loadTexture(url) {
-  return new Promise((res, rej) => new THREE.TextureLoader().load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; res(t); }, undefined, rej));
+function loadTexture(url, srgb = true) {
+  return new Promise((res, rej) => new THREE.TextureLoader().load(url, (t) => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; res(t); }, undefined, rej));
 }
 // every remastered creature, decoded once at startup
 export const remasterReady = (async () => {
@@ -64,8 +64,8 @@ export const remasterReady = (async () => {
     await MeshoptDecoder.ready;
     const forest = bytesOf(FOREST).then(decodeForest).catch((e) => console.warn('forest pack: keeping the procedural trees', e));
     await Promise.all([forest, ...Object.entries(FILES).map(async ([name, f]) => {
-      const [bytes, tex] = await Promise.all([bytesOf(f.bin), loadTexture(f.tex)]);
-      REM[name] = { ...decode(bytes), tex }; status.done++;
+      const [bytes, tex, glow] = await Promise.all([bytesOf(f.bin), loadTexture(f.tex), f.glow ? loadTexture(f.glow, false) : null]);
+      REM[name] = { ...decode(bytes), tex, glow }; status.done++;
     })]);
   } catch (e) { status.error = String(e); console.warn('remaster: falling back to the procedural bodies', e); }
   status.ready = true;

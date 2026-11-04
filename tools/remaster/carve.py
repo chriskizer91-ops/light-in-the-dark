@@ -46,6 +46,10 @@ def side_runs_col(view, mask, z):
     return [((view.g - (b + 0.5)) / view.ppm, (view.g - (a - 0.5)) / view.ppm) for a, b in runs1(mask[:, c])]
 
 def top_runs_row(view, mask, z):
+    if view.kind == 'topL':   # head to the left: the column at depth z, rows are x
+        c = int(round(view.c0 + (view.zf - z) * view.ppmz))
+        if c < 0 or c >= mask.shape[1]: return []
+        return [((a - 0.5 - view.rax) / view.ppmx, (b + 0.5 - view.rax) / view.ppmx) for a, b in runs1(mask[:, c])]
     r = int(round(view.r0 + (z - view.zt) * view.ppm))
     if r < 0 or r >= mask.shape[0]: return []
     return [((a - 0.5 - view.ax) / view.ppm, (b + 0.5 - view.ax) / view.ppm) for a, b in runs1(mask[r])]
@@ -158,7 +162,16 @@ def smooth_params(P, sigma, median=0):
     out[~ok] = np.nan
     return out
 
-def body_z(G, Y_runs, X_runs, p=2.3, zbox=(-9, 9), sigma_m=0.012, pick_x=0.0, median_m=0.04):
+def fb_halfwidth(view, y0, y1):
+    # the widest run through the axis between two heights of a front or back view (metres)
+    best = 0
+    for y in np.arange(y0, y1, 0.004):
+        for a, b in view_runs_row(view, view.mask, y):
+            if a <= 0 <= b: best = max(best, (b - a) / 2)
+    return best
+def body_z(G, Y_runs, X_runs, p=2.3, zbox=(-9, 9), sigma_m=0.012, pick_x=0.0, median_m=0.04, widen=()):
+    """widen: [(z0, z1, view, y0, y1)]: a top view drawn narrower than the front or back one: between z0 and z1
+    the widths are scaled up so the widest matches that view's widest between heights y0 and y1."""
     """The trunk lofted along z: per slice the main profile run (side view column) and the main top-view run,
     smoothed along z, each slice a superellipse."""
     P = []
@@ -169,6 +182,14 @@ def body_z(G, Y_runs, X_runs, p=2.3, zbox=(-9, 9), sigma_m=0.012, pick_x=0.0, me
         yr = max(ys, key=lambda r: r[1] - r[0])
         xr = min(xs, key=lambda r: 0 if r[0] <= pick_x <= r[1] else 1 + min(abs(r[0] - pick_x), abs(r[1] - pick_x)))
         P.append([(xr[0] + xr[1]) / 2, (xr[1] - xr[0]) / 2, (yr[0] + yr[1]) / 2, (yr[1] - yr[0]) / 2])
+    P = np.array(P, float)
+    for z0, z1, view, y0, y1 in widen:
+        sel = (G.ax[2] >= z0) & (G.ax[2] <= z1) & ~np.isnan(P[:, 0])
+        if not sel.any(): continue
+        k = max(1.0, fb_halfwidth(view, y0, y1) / np.nanmax(P[sel, 1]))
+        w = np.clip(np.minimum((G.ax[2] - z0) / 0.05, (z1 - G.ax[2]) / 0.05), 0, 1)   # eased in and out over 5 cm
+        P[:, 1] *= 1 + (k - 1) * w
+        print('  widen', z0, z1, 'x%.2f' % k)
     P = smooth_params(P, sigma_m / G.res, median_m / G.res)
     Xg, Yg = np.meshgrid(G.ax[0], G.ax[1], indexing='ij')
     for k in range(len(G.ax[2])):
@@ -177,18 +198,30 @@ def body_z(G, Y_runs, X_runs, p=2.3, zbox=(-9, 9), sigma_m=0.012, pick_x=0.0, me
         G.f[:, :, k] = smax(G.f[:, :, k], sup((Xg - cx) / a, (Yg - cy) / b, pk, min(a, b)))
     return P
 
-def limb_y(G, A_runs, B_runs, p=2.0, y0=-0.01, ytop=0.5, ext_to=None, ext_down=None, depth_k=1.3, foot=(0.0, 0.0), grow=0.5, min_w=0.015, sigma_m=0.01, min_half=0.0, median_m=0.025, tip_down=0.0, tip_up=0.0):
+def limb_y(G, A_runs, B_runs, p=2.0, y0=-0.01, ytop=0.5, ext_to=None, ext_down=None, depth_k=1.3, foot=(0.0, 0.0), grow=0.5, min_w=0.015, sigma_m=0.01, min_half=0.0, median_m=0.025, tip_down=0.0, tip_up=0.0, track=False, cap=0.04):
     """A vertical limb lofted through horizontal slices, its sections smoothed along y.
     A_runs(y): x intervals in a front/back view; the widest one wider than min_w is the limb (where it is lost
     against the body the last good section carries on). B_runs(y): its z span in profile, held to depth_k x
     its half-width about the span's centre (the far leg drawn beside it is dropped); below foot[0] the half
     depth is foot[1]. Past ytop it carries on to ext_to growing by `grow`; below its first section, down to ext_down."""
     ys = G.ax[1]; P = []; sec = None; zl = None
+    # track: B_runs gives every run; follow one from the top down (the near or the far leg of a staggered
+    # pair, whichever the top joins first, never the gap between them)
+    pick = {}
+    if track:
+        cur = None
+        for y in ys[::-1]:
+            if y < y0 or y > ytop: continue
+            rs = [r for r in B_runs(y) if r[1] - r[0] > G.res]
+            if not rs: continue
+            if cur is None: r = max(rs, key=lambda r: r[1] - r[0])
+            else: r = min(rs, key=lambda r: abs((r[0] + r[1]) / 2 - cur))
+            cur = (r[0] + r[1]) / 2; pick[float(y)] = [r]
     for y in ys:
         if y < y0 or y > ytop: P.append([np.nan] * 4); continue
         xr = [r for r in A_runs(y) if r[1] - r[0] > min_w]
         if xr: r = max(xr, key=lambda r: r[1] - r[0]); sec = ((r[0] + r[1]) / 2, (r[1] - r[0]) / 2)
-        zr = B_runs(y)
+        zr = pick.get(float(y), []) if track else B_runs(y)
         if zr: zl = zr[0]
         if sec is None or zl is None: P.append([np.nan] * 4); continue
         cx, a = sec; z0, z1 = zl; zc = (z0 + z1) / 2
@@ -202,6 +235,7 @@ def limb_y(G, A_runs, B_runs, p=2.0, y0=-0.01, ytop=0.5, ext_to=None, ext_down=N
     for j, y in enumerate(ys):
         if lo <= j <= hi: cx, a, zc, half = P[j]; s = 1.0
         elif ext_to and hi < j and y <= ext_to: cx, a, zc, half = P[hi]; s = 1 + grow * (y - ys[hi]) / max(1e-3, ext_to - ys[hi])
+        elif ext_to and cap and ext_to < y <= ext_to + cap: cx, a, zc, half = P[hi]; s = (1 + grow) * np.sqrt(max(0.0, 1 - ((y - ext_to) / cap) ** 2)) + 1e-3   # a rounded top, not a flat lid
         elif ext_down is not None and j < lo and y >= ext_down: cx, a, zc, half = P[lo]; s = 1.0
         elif tip_down and j < lo and y >= ys[lo] - tip_down: cx, a, zc, half = P[lo]; s = max(0.05, 1 - (ys[lo] - y) / tip_down)   # a pointed tip
         elif tip_up and j > hi and y <= ys[hi] + tip_up: cx, a, zc, half = P[hi]; s = max(0.05, 1 - (y - ys[hi]) / tip_up)
