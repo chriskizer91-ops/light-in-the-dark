@@ -1,16 +1,20 @@
+import { buildNPCs, updateNPCs, talkTarget, talkName, openTalk, talkKey, talkAdvance, NPCS } from './npc.js';
 import { THREE, $, IS_TOUCH, renderer, scene, camera, hemi, canvas, settings, snapOn, snapU, statsProbe, clamp, lerp, smooth, damp, mr, rr, wrapAngle, headingOfYaw, TAU } from './engine.js';
 import { generateLevel, LV, TILE, idx, inBounds, toTile, lineOfSight, moveWithCollisions } from './level.js';
 import { createLantern, updateLantern, lantern, MODES, setMode, swingBlade, beamAt, glint, inBeam, showViewModels, NEAR_R } from './lantern.js';
-import { buildWorld, W, ensureDetail, DETAIL, updateWorldLights, updateCulling, updateCover, updateFireflies, FX, litTest, spawnPickup } from './world3d.js';
+import { buildWorld, W, ensureDetail, DETAIL, updateWorldLights, updateCulling, updateCover, updateFireflies, FX, litTest, spawnPickup, seenPoint, ruinsTick } from './world3d.js';
+import { buildStory, updateStory, slashStory, storyCreatureDown, ST } from './story.js';
 import { spawnCreatures, updateCreatures, CR, damageEnemy, exposeEnemy, interruptEnemy, addCreature, refreshCreatureDetail, creatureTris } from './creatures.js';
 import { updateFX, burst } from './fx.js';
-import { rigTris } from './rigs.js';
-import { G, P, H, BAL } from './state.js';
-import { initAudio, updateAudio, sfx, setSound, AU } from './audio.js';
+import { rigTris, rigExport } from './rigs.js';
+import { remasterReady, remasterStatus, REM } from './remaster.js';
+import { FF } from './forest.js';
+import { G, P, H, BAL, S, resetStory, DF, DIFFS, setDifficulty } from './state.js';
+import { initAudio, updateAudio, sfx, setSound, AU, setAmbience } from './audio.js';
 import { readMove, A, tryLock } from './input.js';
 
 // =====================================================================
-//  THE HOLLOW CROWN: LANTERN OF THE DEEP — first-person, floor III
+//  THE HOLLOW CROWN: LANTERN OF THE DEEP — first-person, floors III and IV
 //  The Crown's rules (oil, three lantern stances, slash/dash/flare/pulse,
 //  braziers, caches, exposure) on Eyeshine's engine (draw only what the
 //  light touches, detail in the beam, eyeshine).
@@ -20,16 +24,22 @@ createLantern();
 
 // ---------- voice (the lantern speaks) + hints ----------
 const VO = { q: [], cur: null, typed: 0, hold: 0, cool: {} };
-H.say = (text, force = false) => {
+// who: the lantern (default), 'sera' or 'merchant'
+const WHO = { sera: 'SERA', merchant: 'THE GRAY MERCHANT', lyn: 'LYN' };
+H.say = (text, force = false, who = '') => {
+  if (!text) return; // nothing to say
   const now = G.t; if (!force && (VO.cool[text] || -99) > now) return;
   VO.cool[text] = now + 10;
   if (VO.cur && VO.cur.text === text) return;
-  if (VO.q.length < 3) VO.q.push({ text });
+  if (VO.q.length < (force ? 6 : 3)) VO.q.push({ text, who });
 };
 let hintTimer = 0;
 H.hint = (text, dur = 3.5) => { const el = $('hint'); el.textContent = text; el.classList.add('on'); hintTimer = dur; };
 function voiceTick(dt) {
-  if (!VO.cur && VO.q.length) { VO.cur = VO.q.shift(); VO.typed = 0; VO.hold = 2.2 + VO.cur.text.length / 22; $('voice').classList.add('on'); }
+  if (!VO.cur && VO.q.length) {
+    VO.cur = VO.q.shift(); VO.typed = 0; VO.hold = 2.2 + VO.cur.text.length / 22; const v = $('voice');
+    v.classList.add('on'); v.classList.toggle('sera', VO.cur.who === 'sera'); v.classList.toggle('merchant', VO.cur.who === 'merchant'); v.classList.toggle('lyn', VO.cur.who === 'lyn'); $('voiceWho').textContent = WHO[VO.cur.who] || '';
+  }
   if (VO.cur) {
     VO.typed = Math.min(VO.cur.text.length, VO.typed + dt * 34);
     $('voiceText').textContent = VO.cur.text.slice(0, Math.floor(VO.typed));
@@ -41,32 +51,50 @@ function voiceTick(dt) {
 // ---------- damage to the Warden ----------
 H.damagePlayer = (amount, source, fx, fz) => {
   if (P.invuln > 0 || G.state !== 'playing') return;
-  const real = amount * BAL.dmgTaken;
+  const real = amount * BAL.dmgTaken * DF.dmg * (1 - P.dr);
   P.hp = Math.max(0, P.hp - real); P.invuln = 0.55; P.hurt = 0.4; G.shake = Math.max(G.shake, 0.45); sfx.hurt();
   if (fx !== undefined) { const a = Math.atan2(P.z - fz, P.x - fx); P.pushX = Math.cos(a) * 5; P.pushZ = Math.sin(a) * 5; }
   if (P.hp <= 0) die();
   else if (P.hp <= 30) H.say('Closer. Do not stop.');
 };
 H.addPickup = (type, x, z) => spawnPickup(type, x, z);
+H.creatureDown = (e) => { storyCreatureDown(e); if (e.guardian) spawnPickup('health', e.x, e.z); };
 
 // ---------- run flow ----------
 let runSeed = (Date.now() % 100000) | 0;
-function buildRun(seed) {
-  generateLevel(seed); buildWorld(); spawnCreatures();
-  Object.assign(P, { x: LV.spawn.x, z: LV.spawn.z, hp: 100, fuel: 100, invuln: 0, dashT: 0, dashCd: 0, attackCd: 0, flareCd: 0, pulseCd: 0, hurt: 0, bob: 0, moving: 0, pushX: 0, pushZ: 0, pitch: -0.05 });
+const FLOORS = {
+  1: { title: 'ASH HOLLOW', lines: [['a', 2, 'Voices. Real ones. I had forgotten what they sound like.'], ['b', 10, 'They all look at the brand. Not at me.']], exit: 'The gate. Past it, everything is gray.', leave: 'LEAVE THROUGH THE GATE' },
+  2: { title: 'THE GRAY FOREST', lines: [['a', 2, 'No colour left in anything. Only what I touch.'], ['b', 9, 'Small footprints. Someone ran this way.']], exit: 'Roots, going down. The woods are deeper below.' },
+  3: { title: 'THE DEEP WOODS', lines: [['a', 2, 'The trees have stopped growing. They remember how.'], ['b', 8, 'I am awake now. Do not let me go out.']], exit: 'Down. The roots go down.' },
+  4: { title: 'THE EASTERN RUINS', lines: [['a', 2, 'The stone here was carved by hands that are still here.'], ['b', 9, 'Walls again. What is behind them stays dark to me until we go through.']], exit: 'Stairs. Down again, into the inner ruins.' },
+  5: { title: 'THE INNER RUINS', lines: [['a', 2, 'The dark does not scare me. The question of whether I can be scared — that is what scares me.'], ['b', 11, () => (S.freedSpirit ? 'She is free. I felt her go. Like a held breath released.' : S.solvedPuzzle ? 'The guardian is gone. What it guarded remains.' : '')]], exit: 'Down. The last stair. I can feel the crown from here.' },
+  6: { title: 'THE HOLLOW THRONE', lines: [['a', 2, 'It waits ahead. Keep me alive.'], ['b', 14, () => (S.learnedTruth || S.freedSpirit ? 'Whatever he says — you came here knowing something. Remember it.' : 'I cannot see past him. Only through.')]], exit: '' },
+};
+// carry: the Warden's state from the floor above (health, oil, relics), or null for a fresh start
+function buildRun(seed, floor = 3, carry = null) {
+  generateLevel(seed, floor); buildWorld(); spawnCreatures(); buildStory(); setAmbience(floor);
+  G.floor = floor;
+  Object.assign(P, { x: LV.spawn.x, z: LV.spawn.z, hp: 100, maxHp: 100, fuel: 100, invuln: 0, dashT: 0, dashCd: 0, attackCd: 0, flareCd: 0, pulseCd: 0, hurt: 0, bob: 0, moving: 0, pushX: 0, pushZ: 0, walkX: 0, walkZ: 0, pitch: -0.05, atkBonus: 0, brightBonus: 0, dr: 0, pulseCostMult: 1, speedK: 0 });
+  if (carry) Object.assign(P, carry);
+  G.talk = null; $('dlg').classList.add('hidden'); document.body.classList.remove('talking');
   // start facing the last fire
   const b = LV.braziers.find((q) => q.lit && Math.hypot(q.x - P.x, q.z - P.z) < 12);
   P.yaw = b ? Math.atan2(-(b.x - P.x), -(b.z - P.z)) : 0;
-  Object.assign(G, { t: 0, paused: false, danger: 0, shake: 0, hitstop: 0, flash: 0, kills: 0, oilFound: 0, secrets: 0, braziersLit: 0, tips: {}, endT: 0, won: false, eyesSeen: false });
+  buildNPCs();
+  Object.assign(G, { t: 0, paused: false, danger: 0, shake: 0, hitstop: 0, flash: 0, tips: {}, endT: 0, won: false, eyesSeen: false });
+  if (!carry) Object.assign(G, { kills: 0, oilFound: 0, secrets: 0, braziersLit: 0, runT: 0 });
+  else Object.assign(G.tips, { c: 1, d: 1 }); // the controls were explained on the floor above
+  $('regionName').textContent = LV.name; $('regionNum').textContent = LV.numeral; $('cardNum').textContent = LV.numeral; $('cardTitle').textContent = LV.name;
+  mapImg = null;
   setMode(1); lantern.shutter = 0;
   FX.flareK = FX.pulseK = 0; flare.on = false; pulseFx.on = false;
   revealAround(P.x, P.z, 3);
   for (const br of LV.braziers) if (br.lit && Math.hypot(br.x - P.x, br.z - P.z) < 14) revealAround(br.x, br.z, 4);
   VO.q = []; VO.cur = null; VO.cool = {}; $('voice').classList.remove('on');
 }
-function startGame() {
-  initAudio();
-  if (G.state !== 'menu') { runSeed = (runSeed * 7919 + 13) % 100000; buildRun(runSeed); }
+function startGame(floor = 1) {
+  initAudio(); resetStory();
+  if (G.state !== 'menu' || floor !== 3) { runSeed = (runSeed * 7919 + 13) % 100000; buildRun(runSeed, floor); }
   else { spawnCreatures(); }
   G.state = 'playing'; G.t = 0;
   $('menu').classList.add('hidden'); $('end').classList.add('hidden'); $('hud').classList.remove('hidden'); $('tricksBtn').classList.remove('hidden');
@@ -91,19 +119,93 @@ function die() {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function descend() {
-  G.state = 'descending'; G.endT = 0; G.won = true; sfx.descend();
-  if (document.pointerLockElement) document.exitPointerLock();
+  G.state = 'descending'; G.endT = 0; G.won = false; sfx.descend(); // every way down leads to the throne; the story ends there (H.ending)
+  if (G.won && document.pointerLockElement) document.exitPointerLock();
+}
+// down the roots into the ruins: health and oil carry over (+28 health, +50 oil, as in the Crown)
+function nextFloor() {
+  const carry = { hp: Math.min(P.maxHp, P.hp + 28 * DF.carry), maxHp: P.maxHp, fuel: Math.min(P.maxFuel, P.fuel + 50 * DF.carry), atkBonus: P.atkBonus, brightBonus: P.brightBonus, dr: P.dr, pulseCostMult: P.pulseCostMult, speedK: P.speedK };
+  G.runT += G.t;
+  runSeed = (runSeed * 7919 + 13) % 100000; buildRun(runSeed, LV.floor + 1, carry);
+  G.state = 'playing';
+  $('card').classList.add('on'); setTimeout(() => $('card').classList.remove('on'), 3200);
+  $('fade').classList.remove('on');
 }
 function showEnd() {
-  const won = G.won, m = Math.floor(G.t / 60), s = String(Math.floor(G.t % 60)).padStart(2, '0');
-  $('endTitle').textContent = won ? 'DOWN INTO THE ROOTS' : 'THE LANTERN GOES OUT';
-  $('endSub').textContent = won ? 'Floor IV, the Eastern Ruins, waits below.' : 'The Deep Woods keep what they take.';
-  $('endStats').innerHTML = `${won ? 'Descended' : 'Lasted'} in ${m}:${s}<br>Slain ${G.kills} · Oil found ${G.oilFound} · Caches ${G.secrets} · Braziers lit ${G.braziersLit}`;
+  const won = G.won, total = G.runT + G.t, m = Math.floor(total / 60), s = String(Math.floor(total % 60)).padStart(2, '0'), f = LV.floor;
+  $('endTitle').textContent = won ? 'DOWN INTO THE DARK' : 'THE LANTERN GOES OUT';
+  const story = S.freedSpirit ? ' Sera is free.' : S.solvedPuzzle ? ' The Crown Shard hums in your pack.' : ST.on && ST.guardianDown ? ' The guardian is dust.' : '';
+  $('endSub').textContent = won ? 'The Hollow Throne waits below.' + story : f === 5 ? 'The Inner Ruins keep what they take.' : f === 4 ? 'The Eastern Ruins keep what they take.' : f === 2 ? 'The Gray Forest keeps what it takes.' : 'The Deep Woods keep what they take.';
+  $('endStats').innerHTML = `${DF.name} \u00b7 ${won ? 'Descended' : 'Lasted'} in ${m}:${s}<br>Slain ${G.kills} · Oil found ${G.oilFound} · Caches ${G.secrets} · Braziers lit ${G.braziersLit}`;
+  $('againBtn').textContent = won ? 'AGAIN, FROM THE VILLAGE' : f >= 4 ? 'AGAIN, FROM THE RUINS' : 'AGAIN, FROM THE VILLAGE';
+  G.endFloor = !won && f >= 4 ? f : 1;
   $('end').classList.remove('hidden'); $('hud').classList.add('hidden'); $('touchUI').classList.add('hidden'); $('tricksBtn').classList.add('hidden'); toggleTricks(false);
   G.state = 'ended'; showViewModels(false);
 }
-$('startBtn').addEventListener('click', () => startGame());
-$('againBtn').addEventListener('click', () => { G.state = 'ended'; startGame(); });
+$('startBtn').addEventListener('click', () => { G.state = 'ended'; startGame(1); });
+// begin partway down (to try a floor without walking the ones above): › picks which
+const PICK = [2, 3, 4, 5, 6], ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+let pickFloor = 3;
+const pickLabel = () => { $('startBtn4').textContent = 'BEGIN AT FLOOR ' + ROMAN[pickFloor] + ' · ' + FLOORS[pickFloor].title; };
+$('startBtn4').addEventListener('click', () => { G.state = 'ended'; startGame(pickFloor); });
+$('pickBtn').addEventListener('click', (e) => { e.stopPropagation(); pickFloor = PICK[(PICK.indexOf(pickFloor) + 1) % PICK.length]; pickLabel(); });
+pickLabel();
+$('againBtn').addEventListener('click', () => { G.state = 'ended'; startGame(G.endFloor || 1); });
+$('menuBtn').addEventListener('click', () => toMenu());
+// ---------- the end of the story (the 2D Crown's showEnding and hollowKingDefeated) ----------
+const ENDINGS = {
+  persuade: { title: 'The King Remembers', pages: () => ['Aldric’s hands close on the crown. He lifts it from his head. The moment it separates, he gasps — the first real breath in decades.', 'Color floods his face. Pain follows. Age follows that. He is dying — has been dying since the crown stopped time.', '“Thank you,” he says. And means it.', 'The crown falls. A circle of cold metal with no more power than a horseshoe. The curse drains from the ruins like water.',
+    ...(S.lynJoined ? ['Lyn puts a hand on your shoulder. She doesn’t say anything. She doesn’t need to.'] : []), ...(S.freedSpirit ? ['You feel Sera pass — not with pain, but with relief, like a held breath finally released.'] : []), 'You carry the dead crown back to Ash Hollow. Maren sees it and understands.'] },
+  take: { title: 'The New Hollow', pages: () => ['The crown settles on your head. It is cold. Then it is everything.', 'You understand now — all of it, all at once. Death is wrong. Uncertainty is wrong. You can fix everything.', 'Aldric watches from the floor, mortal now, fading. “I thought I would be different too,” he whispers.',
+    ...(S.lynJoined ? ['Lyn looks at you. She sees the change. “Warden?” she says. But you are not the Warden anymore.'] : []), 'The curse deepens. You sit on the throne, certain at last, hollow at last.'] },
+  destroy: { title: 'Before the Room Becomes a Room', pages: () => ['You take the crown. The certainty floods in. And you break it.', 'Not because you are strong enough to resist. But because you learned that certainty is not what you came for.', 'The crown shatters. Aldric falls. The gray lifts — slow and then sudden. The ruins groan. Stone falls. You run.',
+    S.lynJoined ? 'Lyn pulls you through the collapsing corridor. “Move, Warden! Philosophy later!”' : 'You run alone, guided by nothing but the forward direction.', 'You emerge into sunlight. Real sunlight. Somewhere, a bird calls — the first bird in years.',
+    ...(S.savedChild ? ['The child runs to meet you at the village gate, laughing.'] : []), ...(S.helpedFarmer ? ['Farmer Ged’s ox lifts its head. Its eyes are clear.'] : []), 'You do not know what comes next. For the first time, that feels like enough.'] },
+  // the path that goes around the story's question has no ending: the original's panel breaks on purpose here
+  fight: { title: '', pages: () => ['The Hollow King falls.', 'The crown rolls across the stone floor. Its gray light pulses once, twice, then holds steady.', 'You wait for the curse to lift. For color to return. For something to change.', 'Nothing changes.', 'The crown is still glowing. The gray is still here. The king is dead and the answer is dead with him and you are standing in a room that no longer has a question.', 'Without the question, the world that held it crashes into nothing.'], button: '…' },
+};
+const story = { pages: [], i: 0, type: '' };
+function showStory(type) {
+  const E = ENDINGS[type]; story.type = type; story.pages = E.pages(); story.i = 0;
+  G.state = 'ended'; G.talk = null; if (document.pointerLockElement) document.exitPointerLock();
+  $('hud').classList.add('hidden'); $('touchUI').classList.add('hidden'); $('tricksBtn').classList.add('hidden'); toggleTricks(false); showViewModels(false);
+  const el = $('story'); el.classList.remove('hidden', 'glitch', 'black');
+  $('stTitle').textContent = E.title; $('stText').innerHTML = ''; $('stStats').innerHTML = ''; $('stStats').classList.remove('on');
+  $('stBtn').textContent = E.button || 'BEGIN AGAIN'; $('stBtn').style.visibility = 'hidden'; $('stTap').style.visibility = 'visible';
+  storyNext();
+}
+function storyNext() {
+  if (story.i >= story.pages.length) return;
+  const p = document.createElement('p'); p.textContent = story.pages[story.i++]; $('stText').appendChild(p); requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add('on')));
+  p.scrollIntoView && setTimeout(() => p.scrollIntoView({ behavior: 'smooth', block: 'end' }), 60);
+  if (story.i < story.pages.length) return;
+  $('stTap').style.visibility = 'hidden';
+  setTimeout(() => {
+    if (story.type !== 'fight') {
+      const quests = [S.helpedFarmer, S.savedChild, S.clearedBandits, S.freedSpirit, S.solvedPuzzle].filter(Boolean).length, relics = [S.ring, S.savedChild, S.solvedPuzzle, S.wraithEdge].filter(Boolean).length;
+      const total = G.runT + G.t, m = Math.floor(total / 60), sec = String(Math.floor(total % 60)).padStart(2, '0');
+      $('stStats').innerHTML = `QUESTS <b>${quests} / 5</b> · COMPANION <b>${S.lynJoined ? 'LYN' : 'NONE'}</b> · RELICS <b>${relics}</b><br>ENDING <b>${ENDINGS[story.type].title.toUpperCase()}</b> · ${DF.name} · ${m}:${sec}`;
+      $('stStats').classList.add('on');
+    }
+    $('stBtn').style.visibility = 'visible';
+  }, 900);
+}
+$('story').addEventListener('pointerdown', (e) => { if (e.target.id === 'stBtn') return; storyNext(); });
+addEventListener('keydown', (e) => { if ($('story').classList.contains('hidden')) return; if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); storyNext(); } });
+$('stBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (story.type === 'fight') { // the world that held the question comes apart: the text shakes itself to pieces, then nothing, then the title
+    const el = $('story'); el.classList.add('glitch'); sfx.rumble && sfx.rumble();
+    const ps = [...$('stText').children], noise = '▓▒░█▚▞╳';
+    let n = 0; const iv = setInterval(() => { n++; for (const p of ps) p.textContent = p.textContent.split('').map((ch) => (Math.random() < 0.06 * n ? noise[(Math.random() * noise.length) | 0] : ch)).join(''); }, 90);
+    setTimeout(() => { clearInterval(iv); el.classList.add('black'); }, 1500);
+    setTimeout(() => { el.classList.add('hidden'); el.classList.remove('glitch', 'black'); toMenu(); }, 2600);
+    return;
+  }
+  $('story').classList.add('hidden'); G.state = 'ended'; startGame(1);
+});
+H.ending = (type) => setTimeout(() => showStory(type), 400);
+H.kingDown = () => { G.shake = 1; P.invuln = 9; for (const o of CR.list) if (o.alive && o.type !== 'witness') { o.leaving = 0; o.leaveA = Math.atan2(o.z - P.z, o.x - P.x); } setTimeout(() => showStory('fight'), 2600); }; // the dark it called goes with it
 $('pauseOv').addEventListener('click', () => { A.resume(); tryLock(); });
 
 // ---------- actions ----------
@@ -111,7 +213,8 @@ const slashRange = 2.6;
 A.slash = () => {
   if (P.attackCd > 0 || P.dashT > 0) return;
   P.attackCd = 0.3; P.swingSide = -P.swingSide; swingBlade(P.swingSide); sfx.slash();
-  const h = headingOfYaw(P.yaw), arc = IS_TOUCH ? 0.85 : 0.62, bm = lantern.mode === 2 ? 1.08 : 1, base = 12 * bm;
+  const h = headingOfYaw(P.yaw), arc = IS_TOUCH ? 0.85 : 0.62, bm = lantern.mode === 2 ? 1.08 + P.brightBonus : 1, base = (12 + P.atkBonus) * bm;
+  slashStory(h, slashRange, arc);
   let hits = 0, exposedHits = 0;
   for (const e of [...CR.list]) {
     const d = Math.hypot(e.x - P.x, e.z - P.z); if (d > slashRange + e.r) continue;
@@ -138,15 +241,17 @@ A.flare = () => {
   H.say('Break them open.');
 };
 const pulseFx = { on: false, life: 0, max: 0.34, R: 12, hit: new Set() };
+const pulseCost = () => BAL.pulseCost * P.pulseCostMult;
 A.pulse = () => {
-  if (P.pulseCd > 0 || P.fuel < BAL.pulseCost) return;
-  P.fuel -= BAL.pulseCost; P.pulseCd = 2.15; sfx.pulse();
+  if (P.pulseCd > 0 || P.fuel < pulseCost()) return;
+  P.fuel -= pulseCost(); P.pulseCd = 2.15; sfx.pulse();
   Object.assign(pulseFx, { on: true, life: pulseFx.max }); pulseFx.hit.clear(); FX.pulseX = P.x; FX.pulseZ = P.z;
   for (let i = 0; i < 28; i++) { const a = (i / 28) * TAU; burst(P.x + Math.cos(a) * 0.6, 0.25, P.z + Math.sin(a) * 0.6, 1, [0.45, 0.65, 1], 0.1, 0.4, 0, 0); }
 };
 A.mode = () => A.setMode((lantern.mode + 1) % 3);
 A.setMode = (m) => {
   if (m === lantern.mode) return;
+  if (LV.floor === 1) { H.hint('Not here. The village keeps the shutter half open.', 1.8); return; }
   if (m === 2 && P.fuel < 18) { H.hint('Too little oil to open the shutter wide.', 1.8); return; }
   setMode(m); sfx.shutter(m);
   H.hint('Lantern: ' + MODES[m].name, 1.2);
@@ -154,25 +259,27 @@ A.setMode = (m) => {
   if (m === 0 && !G.tips.dim) { G.tips.dim = 1; H.say('Hushed. Small steps.'); }
 };
 A.use = () => {
+  const who = talkTarget(); if (who) { openTalk(who); return; }
   if (Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z) < 2.6) { descend(); return; }
   const b = nearestBrazier(2.6, false); if (b) lightBrazier(b);
 };
 A.pause = () => { G.paused = true; $('pauseOv').classList.remove('hidden'); };
 A.resume = () => { if (!tricksOpen) G.paused = false; $('pauseOv').classList.add('hidden'); };
 A.tricks = () => toggleTricks();
+A.talkKey = talkKey; A.talkAdvance = talkAdvance;
 
 function nearestBrazier(r, lit) { let best = null, bd = r; for (const b of LV.braziers) { if (b.lit !== lit) continue; const d = Math.hypot(b.x - P.x, b.z - P.z); if (d < bd) { bd = d; best = b; } } return best; }
 function lightBrazier(b) {
   if (b.lit) return; b.lit = true; b.radius = 8; G.braziersLit++;
   P.fuel = Math.min(P.maxFuel, P.fuel + BAL.brazierLight); sfx.ignite(b); revealAround(b.x, b.z, 4);
-  H.hint('A brazier catches. The clearing exhales.', 2.6);
+  H.hint(LV.floor >= 4 ? 'A brazier catches. The stone remembers warmth.' : 'A brazier catches. The clearing exhales.', 2.6);
 }
 
 // ---------- what the light shows you: the map fills in as you light it ----------
 function markTile(tx, ty) { if (inBounds(tx, ty)) LV.discovered[idx(tx, ty)] = 1; }
 function revealAround(x, z, rT) { const cx = toTile(x), cy = toTile(z); for (let y = -rT; y <= rT; y++) for (let xx = -rT; xx <= rT; xx++) if (xx * xx + y * y <= rT * rT) markTile(cx + xx, cy + y); }
 function discover() {
-  const h = Math.atan2(lantern.dir.z, lantern.dir.x), n = 13, A0 = lantern.angle * 1.1, R = Math.min(lantern.distance, 30) * Math.min(1, lantern.k + 0.2);
+  const h = Math.atan2(lantern.dir.z, lantern.dir.x), n = lantern.ring ? 28 : 13, A0 = lantern.ring ? Math.PI * (1 - 1 / 28) : lantern.angle * 1.1, R = Math.min(lantern.distance, 30) * Math.min(1, lantern.k + 0.2);
   for (let i = 0; i < n; i++) {
     const a = h - A0 + (2 * A0 * i) / (n - 1), c = Math.cos(a), s = Math.sin(a);
     for (let d = 0.5; d < R; d += 0.8) { const tx = toTile(P.x + c * d), ty = toTile(P.z + s * d); markTile(tx, ty); if (!inBounds(tx, ty) || LV.tiles[idx(tx, ty)] === 0) break; }
@@ -186,9 +293,12 @@ let discT = 0;
 function updatePlayer(dt) {
   const [mx, mz] = readMove(dt);
   P.pitch = clamp(P.pitch, -1.3, 1.25);
-  const sp = 3.7 * (lantern.mode === 0 ? 1.06 : 1), s = Math.sin(P.yaw), c = Math.cos(P.yaw);
-  let vx = (-s * mz + c * mx) * sp, vz = (-c * mz - s * mx) * sp;
-  if (P.dashT > 0) { vx = P.dashX * 11; vz = P.dashZ * 11; }
+  const sp = 3.7 * (lantern.mode === 0 ? 1.06 : 1) * (1 + P.speedK), s = Math.sin(P.yaw), c = Math.cos(P.yaw);
+  // walking eases in and out (about a fifth of a second to full speed or to a stop) instead of snapping
+  const tx = (-s * mz + c * mx) * sp, tz = (-c * mz - s * mx) * sp, ka = 1 - Math.exp(-(Math.hypot(tx, tz) > Math.hypot(P.walkX, P.walkZ) ? 14 : 16) * dt);
+  P.walkX += (tx - P.walkX) * ka; P.walkZ += (tz - P.walkZ) * ka;
+  if (P.dashT > 0) { P.walkX = P.dashX * 11; P.walkZ = P.dashZ * 11; } // and a dash carries a little momentum out of it
+  let vx = P.walkX, vz = P.walkZ;
   vx += P.pushX; vz += P.pushZ; const pk = Math.exp(-9 * dt); P.pushX *= pk; P.pushZ *= pk;
   moveWithCollisions(P, vx, vz, dt);
   const speed = Math.hypot(vx, vz);
@@ -199,9 +309,9 @@ function updatePlayer(dt) {
 function updateRules(dt) {
   const M0 = MODES[lantern.mode];
   // oil
-  P.fuel = Math.max(0, P.fuel - M0.drain * dt);
+  if (LV.floor !== 1) P.fuel = Math.max(0, P.fuel - M0.drain * DF.drain * dt); // the village burns no oil
   if (P.fuel <= 0) {
-    P.hp = Math.max(0, P.hp - BAL.darkDrain * dt); if (P.hp <= 0) { die(); return; }
+    P.hp = Math.max(0, P.hp - BAL.darkDrain * DF.dark * dt); if (P.hp <= 0) { die(); return; }
     H.say('I cannot hold much longer.');
   }
   if (P.fuel < 18 && lantern.mode === 2) { setMode(1); H.hint('The lantern narrows to save oil.', 1.8); }
@@ -225,15 +335,17 @@ function updateRules(dt) {
       if (fx.hit.has(e)) continue; const d = Math.hypot(e.x - fx.x0, e.z - fx.z0); if (d > r + e.r) continue;
       fx.hit.add(e); if (!lineOfSight(fx.x0, fx.z0, e.x, e.z)) continue;
       const dir = Math.atan2(e.z - fx.z0, e.x - fx.x0);
+      const stone = e.type === 'sentinel' || e.type === 'guardian';
       if (kind === 'flare') {
-        const base = e.type === 'moth' ? 999 : e.type === 'leech' ? 18 : 8;
-        damageEnemy(e, base, e.type === 'moth' ? 4.5 : 3, dir, 'flare');
-        if (e.alive) { if (e.type === 'leech') exposeEnemy(e, 1.3); if (e.type === 'wolf') exposeEnemy(e, 1.0); }
+        const base = e.type === 'moth' ? 999 : e.type === 'leech' ? 18 : e.type === 'hound' || stone ? 9 : 8;
+        damageEnemy(e, base, e.type === 'moth' ? 4.5 : stone ? 0.6 : 3, dir, 'flare');
+        if (e.alive) { if (e.type === 'leech') exposeEnemy(e, 1.3); if (e.type === 'wolf') exposeEnemy(e, 1.0); if (e.type === 'hound') exposeEnemy(e, 1.1); if (stone) interruptEnemy(e, 0.2); }
       } else {
-        damageEnemy(e, e.type === 'moth' ? 8 : 5, 1.1, dir, 'pulse');
+        damageEnemy(e, e.type === 'moth' ? 8 : 5, stone ? 0.3 : 1.1, dir, 'pulse');
         if (e.alive) {
           if (e.type === 'leech') exposeEnemy(e, 1.08);
-          else if (e.type === 'wolf') { if (e.windup > 0 || e.lungeTime > 0 || lantern.mode === 2) exposeEnemy(e, 1.18); else interruptEnemy(e, 0.16); }
+          else if (stone) exposeEnemy(e, 2.35); // the pulse cracks the wax open
+          else if (e.type === 'wolf' || e.type === 'hound') { if (e.windup > 0 || e.lungeTime > 0 || lantern.mode === 2) exposeEnemy(e, 1.18); else interruptEnemy(e, 0.16); }
           else if (e.type === 'moth') interruptEnemy(e, 0.12);
           else if (e.type === 'bandit' && e.windup > 0) interruptEnemy(e, 0.2);
         }
@@ -253,8 +365,8 @@ function updateRules(dt) {
   for (const p of LV.pickups) {
     if (p.collected || Math.hypot(p.x - P.x, p.z - P.z) > 1.25) continue;
     p.collected = true; sfx.pickup();
-    if (p.type === 'fuel') { P.fuel = Math.min(P.maxFuel, P.fuel + BAL.oil); G.oilFound++; H.hint('Oil recovered.', 1.8); }
-    else { P.hp = Math.min(P.maxHp, P.hp + BAL.tonic); H.hint('A bitter tonic steadies you.', 1.8); }
+    if (p.type === 'fuel') { P.fuel = Math.min(P.maxFuel, P.fuel + BAL.oil * DF.loot); G.oilFound++; H.hint('Oil recovered.', 1.8); }
+    else { P.hp = Math.min(P.maxHp, P.hp + BAL.tonic * DF.loot); H.hint('A bitter tonic steadies you.', 1.8); }
   }
   // hidden caches: Bright light close up finds them (or a pulse)
   for (const s of LV.secrets) {
@@ -263,18 +375,18 @@ function updateRules(dt) {
       if (d < 7 && inBeam(s.x, 0.2, s.z, 0.3, 0, 0) && lineOfSight(P.x, P.z, s.x, s.z)) revealSecret(s);
     }
     if (s.revealed && !s.found && Math.hypot(s.x - P.x, s.z - P.z) < 1.35) {
-      s.found = true; G.secrets++; sfx.secret(); P.fuel = Math.min(P.maxFuel, P.fuel + BAL.cache); H.say('A hidden cache. The lantern hums.');
+      s.found = true; G.secrets++; sfx.secret(); P.fuel = Math.min(P.maxFuel, P.fuel + BAL.cache * DF.loot); H.say('A hidden cache. The lantern hums.');
     }
   }
   // the way down
-  const de = Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z);
-  if (de < 9 && !G.tips.exit && lineOfSight(P.x, P.z, LV.exit.x, LV.exit.z)) { G.tips.exit = 1; H.say('Down. The roots go down.'); }
+  const de = Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z), FL = FLOORS[LV.floor];
+  if (de < 9 && !G.tips.exit && lineOfSight(P.x, P.z, LV.exit.x, LV.exit.z - 2.2)) { G.tips.exit = 1; H.say(FL.exit); }
   // discovery for the map
   discT -= dt; if (discT <= 0) { discT = 0.1; discover(); }
   // the floor's opening lines
   const T = G.t;
-  if (T > 2 && !G.tips.a) { G.tips.a = 1; H.say('The trees have stopped growing. They remember how.', true); }
-  if (T > 8 && !G.tips.b) { G.tips.b = 1; H.say('I am awake now. Do not let me go out.', true); }
+  for (const [k, at, line] of FL.lines) if (T > at && !G.tips[k]) { G.tips[k] = 1; const L = typeof line === 'function' ? line() : line; if (L) H.say(L, true); }
+  if (LV.floor === 4 && T > 16 && !G.tips.ruinsTip) { G.tips.ruinsTip = 1; G.tips.c = 1; H.hint(IS_TOUCH ? 'PULSE cracks sentinels open. FLARE breaks a lunge. LIGHT opens the shutter.' : 'E: pulse cracks sentinels open. F: flare breaks a lunge. Q: the shutter.', 6); }
   if (T > 14 && !G.tips.c) { G.tips.c = 1; H.hint(IS_TOUCH ? 'LIGHT opens and closes my shutter. Wider burns more oil.' : 'Q opens and closes my shutter (or 1, 2, 3). Wider burns more oil.', 5); }
   if (T > 30 && !G.tips.d) { G.tips.d = 1; H.hint(IS_TOUCH ? 'FLARE breaks them open. PULSE lights braziers and finds hidden caches.' : 'Right-click or F: flare breaks them open. E: pulse lights braziers and finds hidden caches.', 6); }
   if (P.fuel < 30 && !G.tips.oil) { G.tips.oil = 1; H.hint('Oil runs low. Amber glints are flasks. Lit braziers refill you.', 4.5); }
@@ -293,16 +405,16 @@ function updateItems(dt, t) {
   for (const o of W.pickups) {
     if (o.src.collected) { if (o.grp.parent) o.grp.parent.remove(o.grp); continue; }
     o.mesh.rotation.y = t * 0.6 + o.src.bob; o.mesh.position.y = 0.05 + Math.sin(t * 2 + o.src.bob) * 0.03;
-    o.mesh.visible = !settings.culling || litTest(o.src.x, 0.2, o.src.z, 0.3);
+    o.mesh.visible = !settings.culling || (litTest(o.src.x, 0.2, o.src.z, 0.3) && seenPoint(o.src.x, o.src.z));
     glintOf(o, o.src.x, 0.2, o.src.z, 0.9);
   }
   for (const o of W.secrets) {
     o.grp.visible = o.src.revealed && !o.src.found; if (!o.grp.visible) continue;
-    o.mesh.visible = !settings.culling || litTest(o.src.x, 0.2, o.src.z, 0.4);
+    o.mesh.visible = !settings.culling || (litTest(o.src.x, 0.2, o.src.z, 0.4) && seenPoint(o.src.x, o.src.z));
     o.losT = o.losT || 0; glintOf(o, o.src.x, 0.35, o.src.z, 1);
   }
   const ex = W.exit, de = Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z);
-  ex.glow.visible = de < 40 && (de < 6 || lineOfSight(P.x, P.z, LV.exit.x, LV.exit.z));
+  ex.glow.visible = de < 40 && (de < 6 || lineOfSight(P.x, P.z, LV.exit.x, LV.exit.z - (LV.floor >= 4 ? 2.2 : 0)));
   ex.glow.material.opacity = 0.16 + 0.08 * Math.sin(t * 2.5);
   ex.hole.visible = ex.mesh.visible;
 }
@@ -311,7 +423,8 @@ function updateItems(dt, t) {
 function updateCamera(dt) {
   let y = 1.62, pitch = P.pitch;
   if (G.state === 'dead') { const k = smooth(0, 1.6, G.endT); y = lerp(1.62, 0.45, k); pitch = lerp(P.pitch, -0.5, k); }
-  if (G.state === 'descending') { const k = smooth(0, 2.2, G.endT); y = lerp(1.62, -2.5, k); pitch = lerp(P.pitch, -0.9, Math.min(1, k * 2)); }
+  if (G.state === 'descending' && LV.floor === 1) { P.x = lerp(P.x, LV.exit.x + 4, 0.012); P.z = lerp(P.z, LV.exit.z, 0.02); pitch = lerp(P.pitch, 0, 0.05); } // out through the gate
+  else if (G.state === 'descending') { const k = smooth(0, 2.2, G.endT); y = lerp(1.62, -2.5, k); pitch = lerp(P.pitch, -0.9, Math.min(1, k * 2)); if (LV.floor >= 4) { P.x = lerp(P.x, LV.exit.x, 0.02); P.z = lerp(P.z, LV.exit.z, 0.02); } }
   const bobY = Math.sin(P.bob * 2) * 0.035 * P.moving, bobX = Math.cos(P.bob) * 0.025 * P.moving, sh = G.shake;
   camera.position.set(P.x + Math.cos(P.yaw) * bobX, y + bobY, P.z - Math.sin(P.yaw) * bobX);
   camera.rotation.set(pitch + (Math.random() - 0.5) * sh * 0.06, P.yaw + (Math.random() - 0.5) * sh * 0.06, 0);
@@ -320,22 +433,24 @@ function updateCamera(dt) {
 }
 function updateEnvironment() {
   if (settings.debugLight) { hemi.intensity = 3; hemi.color.set(0xd8dce8); hemi.groundColor.set(0x403830); scene.fog.near = 500; scene.fog.far = 1000; scene.background.set(0x0b1220); return; }
-  hemi.intensity = 0.035; hemi.color.set(0x6a7890); hemi.groundColor.set(0x0a0806); scene.background.set(0x000000);
-  if (settings.fog) { scene.fog.near = 7; scene.fog.far = Math.max(lantern.distance + 9, FX.flareK > 0 ? FX.flareR + 8 : 0, 26); } else { scene.fog.near = 500; scene.fog.far = 1000; }
+  const sky = settings.ring && LV && LV.floor === 1; // the original lights Ash Hollow under an iron sky: you see down the street
+  hemi.intensity = sky ? 0.55 : 0.035; hemi.color.set(sky ? 0x8a96a8 : 0x6a7890); hemi.groundColor.set(sky ? 0x2a2622 : 0x0a0806); scene.background.set(sky ? 0x0c0e12 : 0x000000);
+  if (settings.fog) { scene.fog.near = sky ? 18 : 7; scene.fog.far = sky ? 60 : Math.max(lantern.distance + 9, FX.flareK > 0 ? FX.flareR + 8 : 0, 26); } else { scene.fog.near = 500; scene.fog.far = 1000; }
 }
 
 // ---------- HUD ----------
 const last = {};
 const setIf = (k, v, fn) => { if (last[k] !== v) { last[k] = v; fn(v); } };
 function updateHUD(dt) {
-  setIf('hp', Math.ceil(P.hp), (v) => { $('hpNum').textContent = v; $('hpBar').firstChild.style.transform = `scaleX(${v / 100})`; });
+  setIf('hp', Math.ceil(P.hp) + '/' + P.maxHp, () => { const v = Math.ceil(P.hp); $('hpNum').textContent = v; $('hpBar').firstChild.style.transform = `scaleX(${v / P.maxHp})`; });
   setIf('oil', Math.ceil(P.fuel), (v) => { $('oilNum').textContent = v; $('oilBar').firstChild.style.transform = `scaleX(${v / 100})`; $('oilRow').classList.toggle('low', v < 20); });
   setIf('mode', lantern.mode, (m) => { $('stanceName').textContent = MODES[m].name; document.querySelectorAll('#stance .fl').forEach((f, i) => f.classList.toggle('on', i <= m)); });
   const cd = (id, v, max, ok) => { const el = $(id); el.style.setProperty('--cd', (v / max).toFixed(3)); el.classList.toggle('off', !ok); };
-  cd('cdS', P.attackCd, 0.3, true); cd('cdD', P.dashCd, 1.6, true); cd('cdF', P.flareCd, 5.6, P.fuel >= BAL.flareCost); cd('cdP', P.pulseCd, 2.15, P.fuel >= BAL.pulseCost);
+  cd('cdS', P.attackCd, 0.3, true); cd('cdD', P.dashCd, 1.6, true); cd('cdF', P.flareCd, 5.6, P.fuel >= BAL.flareCost); cd('cdP', P.pulseCd, 2.15, P.fuel >= pulseCost());
   if (IS_TOUCH) { $('bDash').style.setProperty('--cd', (P.dashCd / 1.6).toFixed(3)); $('bFlare').style.setProperty('--cd', (P.flareCd / 5.6).toFixed(3)); $('bPulse').style.setProperty('--cd', (P.pulseCd / 2.15).toFixed(3)); }
   const mood = P.fuel < 15 ? 'AFRAID' : P.hp < 30 ? 'WORRIED' : MODES[lantern.mode].mood.toUpperCase();
   setIf('mood', mood, (v) => { $('mood').textContent = v; });
+  setIf('coins', S.coins + (S.lynJoined ? '+L' : ''), () => { $('coins').textContent = '\u25c8 ' + S.coins + ' COINS' + (S.lynJoined ? '  \u00b7  LYN WITH YOU' : ''); });
   $('danger').style.opacity = (G.danger * (0.55 + 0.45 * Math.sin(performance.now() * 0.009))).toFixed(3);
   $('hurtfx').style.opacity = (P.hurt / 0.4).toFixed(3);
   G.flash = Math.max(0, G.flash - dt * 2.2); $('flashfx').style.opacity = (G.flash * 0.7).toFixed(3);
@@ -343,7 +458,10 @@ function updateHUD(dt) {
   let pr = '';
   if (G.state === 'playing') {
     const key = IS_TOUCH ? 'USE' : 'R';
-    if (Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z) < 2.6) pr = key + ' · DESCEND';
+    const who = talkTarget();
+    if (who) pr = key + ' · TALK TO ' + talkName(who);
+    else if (Math.hypot(LV.exit.x - P.x, LV.exit.z - P.z) < 2.6) pr = key + ' · ' + (FLOORS[LV.floor].leave || 'DESCEND');
+    else if (ST.on && ST.sera.breakable && !ST.freed && ST.anchors.some((a) => !a.broken && Math.hypot(a.x - P.x, a.z - P.z) < 2.8)) pr = (IS_TOUCH ? 'SLASH' : 'CLICK') + ' · STRIKE THE ANCHOR';
     else if (nearestBrazier(2.6, false)) pr = key + ' · LIGHT THE BRAZIER';
   }
   setIf('prompt', pr, (v) => { $('prompt').textContent = v; $('prompt').classList.toggle('on', !!v); });
@@ -360,14 +478,14 @@ function drawMap() {
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
       const tx = Math.floor(x / sc), ty = Math.floor(y / sc), o = (y * S + x) * 4; d[o + 3] = 255;
       if (!inBounds(tx, ty) || !LV.discovered[idx(tx, ty)]) { d[o] = 8; d[o + 1] = 7; d[o + 2] = 6; continue; }
-      if (LV.tiles[idx(tx, ty)]) { d[o] = 176; d[o + 1] = 160; d[o + 2] = 128; } else { d[o] = 40; d[o + 1] = 46; d[o + 2] = 34; }
+      if (LV.tiles[idx(tx, ty)]) { d[o] = 176; d[o + 1] = 160; d[o + 2] = 128; } else if (LV.solid) { d[o] = 58; d[o + 1] = 54; d[o + 2] = 50; } else { d[o] = 40; d[o + 1] = 46; d[o + 2] = 34; }
     }
   }
   mg.putImageData(mapImg, 0, 0);
   for (const b of LV.braziers) if (b.lit && LV.discovered[idx(toTile(b.x), toTile(b.z))]) { mg.fillStyle = '#ff9a40'; mg.fillRect(b.x / TILE * sc - 1.5, b.z / TILE * sc - 1.5, 3, 3); }
   if (LV.exit.found) { mg.strokeStyle = '#e8c878'; mg.lineWidth = 1.5; mg.beginPath(); mg.arc(LV.exit.x / TILE * sc, LV.exit.z / TILE * sc, 3.5, 0, TAU); mg.stroke(); }
   const px = P.x / TILE * sc, pz = P.z / TILE * sc, h = Math.atan2(lantern.dir.z, lantern.dir.x);
-  mg.fillStyle = 'rgba(255,226,170,.22)'; mg.beginPath(); mg.moveTo(px, pz); mg.arc(px, pz, lantern.distance / TILE * sc, h - lantern.angle, h + lantern.angle); mg.closePath(); mg.fill();
+  mg.fillStyle = 'rgba(255,226,170,.22)'; mg.beginPath(); mg.moveTo(px, pz); mg.arc(px, pz, lantern.distance / TILE * sc, lantern.ring ? 0 : h - lantern.angle, lantern.ring ? Math.PI * 2 : h + lantern.angle); mg.closePath(); mg.fill();
   mg.fillStyle = '#fff'; mg.beginPath(); mg.arc(px, pz, 2, 0, TAU); mg.fill();
 }
 
@@ -386,7 +504,14 @@ document.querySelectorAll('#tricks input').forEach((inp) => {
 });
 function setDetail(d) { settings.detail = d; document.querySelectorAll('#detailSeg button').forEach((b) => b.classList.toggle('on', b.dataset.d === d)); ensureDetail(); refreshCreatureDetail(); }
 document.querySelectorAll('#detailSeg button').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); setDetail(b.dataset.d); }));
+try { if (localStorage.getItem('hc3d-ring') === '1') settings.ring = true; setDifficulty(localStorage.getItem('hc3d-diff') || 'standard'); } catch (e) { /* private mode: no memory */ }
+function diffLabel() { $('diffBtn').innerHTML = 'DIFFICULTY: ' + DF.name + '<small>' + DF.blurb + '</small>'; }
+$('diffBtn').addEventListener('click', (e) => { e.stopPropagation(); const ks = Object.keys(DIFFS); setDifficulty(ks[(ks.indexOf(DF.key) + 1) % ks.length]); try { localStorage.setItem('hc3d-diff', DF.key); } catch (er) { /* ignore */ } diffLabel(); });
+diffLabel();
+function ringLabel() { $('ringBtn').textContent = settings.ring ? 'LANTERN: A RING OF LIGHT (THE ORIGINAL)' : 'LANTERN: A BEAM (ONE DIRECTION)'; }
+$('ringBtn').addEventListener('click', (e) => { e.stopPropagation(); settings.ring = !settings.ring; applySetting('ring'); });
 function applySetting(k) {
+  if (k === 'ring') { try { localStorage.setItem('hc3d-ring', settings.ring ? '1' : '0'); } catch (e) { /* ignore */ } ringLabel(); }
   const box = document.querySelector(`#tricks input[data-k=${k}]`); if (box) box.checked = !!settings[k];
   if (k === 'psx') { $('stage').classList.toggle('px', settings.psx); snapOn.value = settings.psx ? 1 : 0; resize(); }
   if (k === 'xray') $('xray').classList.toggle('hidden', !settings.xray);
@@ -403,9 +528,9 @@ function updateStats() {
   $('stats').classList.toggle('hidden', !show); if (!show) return;
   const info = renderer.info.render, k = (t) => (t >= 1e6 ? (t / 1e6).toFixed(2) + 'M' : (t / 1000).toFixed(1) + 'k');
   const viewT = info.triangles - statsProbe.shadowTris - 1, viewC = info.calls - statsProbe.shadowCalls - 1;
-  const ct = creatureTris();
-  lastStats = { fps, view: viewT, shadow: statsProbe.shadowTris, calls: viewC, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: ct, jsMs: +perf.js.toFixed(2), renderMs: +perf.render.toFixed(2) };
-  $('stats').innerHTML = `${fps} FPS · DETAIL ${DETAIL[settings.detail].label}<br><b>${k(viewT)} tris in view</b><br>${k(ct)} of them creatures<br>+${k(statsProbe.shadowTris)} shadow pass<br>${viewC} draw calls (+${statsProbe.shadowCalls})<br>${W.drawn} / ${W.total} objects · ${W.coverDrawn} cover`;
+  const ct = creatureTris(), B = W.ruins && W.ruins.blocks, bl = B ? B.drawn : 0;
+  lastStats = { fps, view: viewT, shadow: statsProbe.shadowTris, calls: viewC, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: ct, blocks: bl, occluded: W.occluded || 0, jsMs: +perf.js.toFixed(2), renderMs: +perf.render.toFixed(2) };
+  $('stats').innerHTML = `${fps} FPS · DETAIL ${DETAIL[settings.detail].label}<br><b>${k(viewT)} tris in view</b><br>${k(ct)} of them creatures<br>+${k(statsProbe.shadowTris)} shadow pass<br>${viewC} draw calls (+${statsProbe.shadowCalls})<br>${W.drawn} / ${W.total} objects · ${W.coverDrawn} cover` + (W.ruins ? `<br>${bl} carved blocks · ${W.occluded || 0} behind walls` : '');
 }
 const xr = $('xray'), xg = xr.getContext('2d');
 function drawXray() {
@@ -415,12 +540,19 @@ function drawXray() {
   xg.clearRect(0, 0, S, S); xg.save(); xg.beginPath(); xg.arc(cx, cy, S / 2, 0, TAU); xg.clip();
   xg.fillStyle = 'rgba(0,0,0,.8)'; xg.fillRect(0, 0, S, S);
   const fx = lantern.dir.x, fz = lantern.dir.z, fl = Math.hypot(fx, fz) || 1, off = Math.atan2((fx * c - fz * s) / fl, (-fx * s - fz * c) / fl);
-  if (lantern.k > 0.02) { xg.fillStyle = 'rgba(255,236,190,.16)'; xg.beginPath(); xg.moveTo(cx, cy); xg.arc(cx, cy, lantern.distance * sc, -Math.PI / 2 + off - lantern.angle, -Math.PI / 2 + off + lantern.angle); xg.closePath(); xg.fill(); }
+  if (lantern.k > 0.02) { xg.fillStyle = 'rgba(255,236,190,.16)'; xg.beginPath(); xg.moveTo(cx, cy); xg.arc(cx, cy, lantern.distance * sc, lantern.ring ? 0 : -Math.PI / 2 + off - lantern.angle, lantern.ring ? Math.PI * 2 : -Math.PI / 2 + off + lantern.angle); xg.closePath(); xg.fill(); }
+  if (W.ruins) { // walls: bright where drawn this frame, dim where culled
+    for (const c of W.ruins.cells) for (const f of c.faces) {
+      const a = f.xFace ? [f.plane, f.u0] : [f.u0, f.plane], b = f.xFace ? [f.plane, f.u0 + TILE] : [f.u0 + TILE, f.plane];
+      if (Math.hypot(a[0] - P.x, a[1] - P.z) > R + 4) continue;
+      const [x0, y0] = proj(a[0], a[1]), [x1, y1] = proj(b[0], b[1]); xg.strokeStyle = c.mesh.visible ? '#efe6cf' : '#3a3632'; xg.lineWidth = 2; xg.beginPath(); xg.moveTo(x0, y0); xg.lineTo(x1, y1); xg.stroke();
+    }
+  }
   for (const o of W.cullables) {
-    const dx = o.cx - P.x, dz = o.cz - P.z; if (dx * dx + dz * dz > (R + 8) ** 2 || o.ground) continue;
+    const dx = o.cx - P.x, dz = o.cz - P.z; if (dx * dx + dz * dz > (R + 8) ** 2 || o.ground || o.wall) continue;
     const [x, y] = proj(o.cx, o.cz); xg.fillStyle = o.mesh.visible ? '#efe6cf' : '#34322e'; xg.fillRect(x - 1.5, y - 1.5, 3, 3);
   }
-  for (const e of CR.list) { const [x, y] = proj(e.x, e.z); xg.fillStyle = e.body.visible ? '#ff7a4a' : '#7a3a2a'; xg.beginPath(); xg.arc(x, y, 3.5, 0, TAU); xg.fill(); }
+  for (const e of CR.list) { const [x, y] = proj(e.x, e.z); xg.fillStyle = e.mesh.visible ? '#ff7a4a' : '#7a3a2a'; xg.beginPath(); xg.arc(x, y, 3.5, 0, TAU); xg.fill(); }
   xg.fillStyle = '#fff'; xg.beginPath(); xg.moveTo(cx, cy - 7); xg.lineTo(cx - 4, cy + 5); xg.lineTo(cx + 4, cy + 5); xg.closePath(); xg.fill(); xg.restore();
 }
 
@@ -436,7 +568,7 @@ function resize() {
 addEventListener('resize', resize);
 $('ctrlText').textContent = IS_TOUCH
   ? 'Left thumb walks · right thumb looks · SLASH · DASH · FLARE · PULSE · LIGHT opens the shutter · USE. Landscape works best.'
-  : 'WASD move · mouse look · click or Space: slash · Shift: dash · right-click or F: flare · E: pulse · Q or 1 2 3: lantern shutter · R: use · T: rendering tricks · Esc: pause';
+  : 'WASD move · mouse look (or ← → to turn) · click or Space: slash · Shift: dash · right-click or F: flare · E: pulse · Q or 1 2 3: lantern shutter · R: use · T: rendering tricks · Esc: pause';
 
 // ---------- loop ----------
 let lastT = performance.now();
@@ -452,13 +584,19 @@ function runFrame(now, doRender, fixedDt) {
   if (G.state === 'menu') { P.yaw += rdt * 0.16; P.pitch = -0.08 + Math.sin(t * 0.35) * 0.06; }
   else if (G.state === 'playing') { if (!G.paused) { G.t += dt; updatePlayer(dt); updateRules(dt); } }
   else if (G.state === 'dead') { G.endT += rdt; if (G.endT > 2.4) showEnd(); }
-  else if (G.state === 'descending') { G.endT += rdt; if (G.endT > 2.6) showEnd(); }
+  else if (G.state === 'descending') {
+    G.endT += rdt;
+    if (!G.won && G.endT > 1.6) $('fade').classList.add('on');
+    if (G.endT > 2.6) { if (G.won) showEnd(); else nextFloor(); }
+  }
   if (G.state === 'dead' || G.state === 'descending') voiceTick(rdt);
   updateCamera(rdt);
   const live = G.state === 'playing' && !G.paused;
-  updateLantern(rdt, { on: G.state !== 'ended' && !(G.state === 'dead' && G.endT > 1.2), fuel: G.state === 'menu' ? 100 : P.fuel, bob: P.bob, moving: P.moving, menu: G.state === 'menu' });
+  updateLantern(rdt, { on: G.state !== 'ended' && !(G.state === 'dead' && G.endT > 1.2), fuel: G.state === 'menu' ? 100 : P.fuel, bob: P.bob, moving: P.moving, menu: G.state === 'menu', brightBonus: P.brightBonus });
   updateWorldLights(rdt, t);
   updateCreatures(live ? dt : G.state === 'menu' ? rdt : 0, camera);
+  updateStory(live ? dt : 0, live); ruinsTick(rdt, P.x, P.z, H.say);
+  if (G.state !== 'menu') updateNPCs(rdt, live);
   updateItems(rdt, t);
   updateEnvironment();
   updateCulling(); updateCover(); updateFireflies(rdt, t, G.danger); updateFX(G.paused ? 0 : dt);
@@ -471,13 +609,19 @@ function runFrame(now, doRender, fixedDt) {
   updateStats(); drawXray();
 }
 
-// boot
+// boot: the remastered creatures are decoded first (a moment), then the title wolf can be built
 resize();
-applySetting('psx'); applySetting('stats'); applySetting('xray'); setDetail(settings.detail);
-toMenu();
-requestAnimationFrame(frame);
-
-// hook for automated playtesting
-window.__crown3d = { G, P, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris,
-  measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: creatureTris() }; },
-  step(sec, render = true) { let n = Math.round(sec * 60), now = lastT; for (let i = 0; i < n; i++) { now += 1000 / 60; runFrame(now, false, 1 / 60); } if (render) runFrame(now + 1000 / 60, true, 1 / 60); } };
+applySetting('psx'); applySetting('stats'); applySetting('xray'); applySetting('ring'); setDetail(settings.detail);
+for (const id of ['startBtn', 'startBtn4', 'pickBtn']) $(id).disabled = true;
+$('startBtn').dataset.label = $('startBtn').textContent; $('startBtn').textContent = 'WAKING THE CREATURES…';
+remasterReady.then(() => {
+  for (const id of ['startBtn', 'startBtn4', 'pickBtn']) $(id).disabled = false;
+  $('startBtn').textContent = $('startBtn').dataset.label;
+  toMenu();
+  requestAnimationFrame(frame);
+  // hook for automated playtesting
+  window.__crown3d = { G, P, ST, S, NPCS, settings, get LV() { return LV; }, get W() { return W; }, CR, lantern, get stats() { return lastStats; }, startGame, applySetting, setDetail, toggleTricks, camera, renderer, A, setMode, damageEnemy, sfx, addCreature, rigTris, descend, nextFloor,
+    measure() { const info = renderer.info.render; return { view: info.triangles - statsProbe.shadowTris - 1, shadow: statsProbe.shadowTris, calls: info.calls - statsProbe.shadowCalls - 1, shadowCalls: statsProbe.shadowCalls, objects: W.drawn, total: W.total, cover: W.coverDrawn, creatures: creatureTris(), blocks: W.ruins && W.ruins.blocks ? W.ruins.blocks.drawn : 0, occluded: W.occluded || 0 }; },
+    step(sec, render = true) { let n = Math.round(sec * 60), now = lastT; for (let i = 0; i < n; i++) { now += 1000 / 60; runFrame(now, false, 1 / 60); } if (render) runFrame(now + 1000 / 60, true, 1 / 60); } };
+  window.__crown3d.remaster = remasterStatus; window.__crown3d.FF = FF; window.__crown3d.REM = REM; window.__crown3d.rigExport = rigExport;
+});

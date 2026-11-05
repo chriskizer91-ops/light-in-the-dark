@@ -1,2 +1,5 @@
 node_modules
 .DS_Store
+tools/*.out.html
+__pycache__/
+dist/tools/

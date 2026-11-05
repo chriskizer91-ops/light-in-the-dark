@@ -1,4 +1,5 @@
 import { THREE, GeoBuilder, T, M, I, col, rr, rnd, lerp, clamp, barkArr, rockArr, nz3 } from './engine.js';
+import { FF, ffTris } from './forest.js';
 
 // =====================================================================
 //  THE DEEP WOODS — trees, thickets, rocks and ground cover.
@@ -177,7 +178,11 @@ export function coverVariants(q) {
   return [
     { w: 0.35, g: make((b) => { litter(b, 70 * q, leaves); for (let i = 0; i < 2 + q; i++) { const [x, z] = P(); b.add(T.cyl4, M(x, 0.02, z, Math.PI / 2, rr(0, 6.28), 0, 0.015, rr(0.3, 0.7), 0.015), col(0x4d3e30), 0.1); } for (let i = 0; i < 2 * q; i++) { const [x, z] = P(), s = rr(0.03, 0.08); b.add(T.ico, M(x, s * 0.3, z, rr(0, 3), rr(0, 6), 0, s, s * 0.6, s), col(0x5a5852), 0.15); } }) },
     { w: 0.25, g: make((b) => { fern(b, rr(-0.3, 0.3), rr(-0.3, 0.3), 6 + 2 * q, 5 + 3 * q); if (q > 1) fern(b, rr(-0.5, 0.5), rr(-0.5, 0.5), 5 + q, 4 + 2 * q); litter(b, 15 * q, leaves); }) },
-    { w: 0.3, g: make((b) => { for (let i = 0; i < 5; i++) { const [x, z] = P(); tuft(b, x, z, 6 + 5 * q, 0.12, 0.35, moss); } litter(b, 10 * q, leaves); }) },
+    // grass: the Field & Forest tufts (meadow and dry prairie grass) where the pack is loaded, else blades
+    { w: 0.3, g: make((b) => {
+      if (FF.meadow) for (let i = 0; i < 2 + q; i++) { const [x, z] = P(), s = rr(0.7, 1.15), k = rnd() < 0.6 ? (q >= 2 ? 'meadow' : 'meadow_far') : (q >= 2 ? 'dry' : 'dry_far'); b.addRaw(ffTris(k, M(x, 0, z, 0, rr(0, 6.28), 0, s, s * (k.startsWith('dry') ? 0.55 : 1), s))); }
+      else for (let i = 0; i < 5; i++) { const [x, z] = P(); tuft(b, x, z, 6 + 5 * q, 0.12, 0.35, moss); }
+      litter(b, 10 * q, leaves); }) },
     { w: 0.1, g: make((b) => {
       // pale mushrooms; a few glow faintly on their own (see world3d: the cover's glow layer)
       for (let i = 0; i < 3 + 2 * q; i++) { const [x, z] = P(), h = rr(0.06, 0.14), r = rr(0.04, 0.09), cap = rnd() < 0.5 ? col(0xa8462e) : col(0xc9b48a);

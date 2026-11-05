@@ -51,10 +51,42 @@
   #voice { position:absolute; left:50%; bottom:max(22px,env(safe-area-inset-bottom)); transform:translateX(-50%); max-width:min(80vw,760px); display:flex; gap:10px; align-items:center;
     font:600 18px/1.35 var(--f); color:#f2e2b8; text-shadow:0 0 12px rgba(255,170,80,.35), 0 2px 2px #000; opacity:0; transition:opacity .4s; }
   #voice.on { opacity:1; }
+  #voice b { display:block; font:700 11px/1.2 var(--f); letter-spacing:.24em; opacity:.75; }
+  #voice b:empty { display:none; }
+  #voice.sera { color:#d4e2ff; text-shadow:0 0 14px rgba(130,160,255,.55), 0 2px 2px #000; font-style:italic; }
+  #voice.sera .flame { background:radial-gradient(circle at 50% 60%, #ffffff, #a8c0ff 55%, #4060c0); box-shadow:0 0 12px #8aa8ff; border-radius:50%; }
+  #voice.merchant { color:#c8c4d2; text-shadow:0 0 8px rgba(160,160,190,.3), 0 2px 2px #000; }
+  #voice.merchant .flame { background:radial-gradient(circle at 50% 70%, #e8ecf4, #8a90a8 60%, #3a3e50); box-shadow:0 0 8px #8890b0; }
+  #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; transition:opacity .9s; z-index:3; }
+  #fade.on { opacity:1; }
+  .pickRow { display:flex; gap:6px; justify-content:center; margin-top:0; }
+  .go.alt.pick { width:44px; padding:0; font-size:18px; letter-spacing:0; }
+  .go.alt { height:40px; font-size:12px; letter-spacing:.2em; background:rgba(24,22,28,.75); border-color:rgba(200,196,210,.4); color:#d8d4e0; margin-top:0; }
   #voice .flame { flex:none; width:10px; height:15px; border-radius:50% 50% 45% 45%/60% 60% 40% 40%; background:radial-gradient(circle at 50% 70%, #fff3c8, #ffa640 60%, #b04a10); box-shadow:0 0 10px #ff9a40; }
   #hint { position:absolute; left:50%; bottom:calc(max(22px,env(safe-area-inset-bottom)) + 40px); transform:translateX(-50%); max-width:80vw; text-align:center;
     font:500 14px/1.4 var(--f); color:var(--ink2); text-shadow:0 2px 2px #000; opacity:0; transition:opacity .4s; }
   #hint.on { opacity:1; }
+  #dlg { position:absolute; left:50%; bottom:max(26px,env(safe-area-inset-bottom)); transform:translateX(-50%); width:min(92vw,720px); padding:16px 20px 14px; background:linear-gradient(180deg,rgba(12,10,8,.9),rgba(6,5,4,.94)); border:1px solid rgba(232,200,120,.28); border-radius:6px; color:#e8dcc4; font:16px/1.5 Georgia,serif; pointer-events:auto; z-index:5; }
+  #dlg.hidden { display:none; }
+  #dlg .who { font:700 11px/1 var(--f); letter-spacing:.26em; color:var(--gold); margin-bottom:8px; }
+  #dlg .txt { min-height:3em; text-shadow:0 1px 2px #000; }
+  #dlg .more { text-align:right; font-size:11px; color:var(--gold); opacity:.7; }
+  #dlg .coins { position:absolute; right:18px; top:12px; font:700 11px/1 var(--f); letter-spacing:.14em; color:var(--gold); }
+  #dlg .ch { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+  .dch { all:unset; cursor:pointer; padding:7px 10px; border:1px solid rgba(232,200,120,.18); border-radius:4px; font:15px/1.3 Georgia,serif; color:#e8dcc4; background:rgba(255,230,180,.03); }
+  .dch i { font:700 11px var(--f); color:var(--gold); margin-right:10px; font-style:normal; opacity:.8; }
+  .dch em { float:right; font:italic 12px Georgia,serif; opacity:.6; }
+  .dch.on, .dch:hover { border-color:rgba(232,200,120,.6); background:rgba(255,230,180,.08); }
+  .dch.no { opacity:.45; }
+  #voice.lyn { color:#f0c8a0; text-shadow:0 0 10px rgba(200,110,60,.35), 0 2px 2px #000; }
+  #coins { font:700 11px/1 var(--f); letter-spacing:.16em; color:var(--gold); margin-top:8px; opacity:.85; }
+  #voice { background:radial-gradient(ellipse at 50% 55%, rgba(0,0,0,.55), rgba(0,0,0,.3) 60%, transparent 85%); padding:8px 16px; border-radius:10px; }
+  body.touch #voice { bottom:calc(max(14px,env(safe-area-inset-bottom)) + 146px); max-width:92vw; font-size:16px; }
+  body.touch #stats { top:calc(max(10px,env(safe-area-inset-top)) + 190px); }
+  body.talking #touchUI, body.talking #prompt, body.talking #voice { display:none !important; }
+  body.touch #dlg { width:94vw; bottom:max(16px,env(safe-area-inset-bottom)); font-size:17px; padding:16px 18px 14px; }
+  body.touch .dch { padding:11px 12px; font-size:16px; }
+  #diffBtn small { display:block; font:500 10px/1.4 var(--f); letter-spacing:.08em; opacity:.6; margin-top:4px; text-transform:none; }
   #prompt { position:absolute; left:50%; top:62%; transform:translateX(-50%); font:700 14px/1 var(--f); letter-spacing:.14em; color:var(--gold); text-shadow:0 2px 3px #000; opacity:0; transition:opacity .2s; }
   #prompt.on { opacity:1; }
   #card { position:absolute; left:0; right:0; top:34%; text-align:center; pointer-events:none; opacity:0; transition:opacity 1.2s; }
@@ -105,6 +137,17 @@
   .floor { font:600 13px/1.5 var(--f); letter-spacing:.2em; color:var(--amber); }
   .go { margin-top:10px; height:48px; padding:0 30px; border-radius:999px; border:1px solid rgba(232,200,120,.6); background:rgba(40,30,16,.8); color:var(--gold); font:700 15px/1 var(--f); letter-spacing:.24em; }
   .go:hover { background:rgba(70,50,24,.9); }
+  #story { position:fixed; inset:0; z-index:8; background:#050404; display:flex; align-items:center; justify-content:center; overflow-y:auto; padding:28px 22px; }
+  #stIn { max-width:620px; width:100%; display:flex; flex-direction:column; align-items:center; text-align:center; gap:18px; }
+  #story .title { font-size:clamp(26px,5vw,46px); }
+  #stText p { font:400 clamp(16px,2.3vw,19px)/1.65 var(--serif); color:#e6dccb; margin:0 0 14px; opacity:0; transform:translateY(6px); transition:opacity 1.2s, transform 1.2s; }
+  #stText p.on { opacity:1; transform:none; }
+  #stStats { font:600 12px/1.9 var(--f); letter-spacing:.2em; color:var(--ink2); opacity:0; transition:opacity 1.2s; }
+  #stStats.on { opacity:1; } #stStats b { color:var(--gold); font-weight:700; }
+  #stTap { font:600 11px/1 var(--f); letter-spacing:.3em; color:#6a6258; }
+  #story.glitch #stIn { animation:glitch .09s steps(2) infinite; } #story.glitch p { color:#c8c0b0; }
+  @keyframes glitch { 0% { transform:translate(3px,-2px) skewX(4deg); filter:hue-rotate(40deg); } 50% { transform:translate(-4px,2px) skewX(-6deg); } 100% { transform:translate(2px,1px); } }
+  #story.black #stIn { opacity:0; transition:opacity .4s; }
   .ctrl { max-width:560px; font:500 13px/1.6 var(--f); color:var(--ink2); }
   #endStats { font:500 15px/1.7 var(--f); color:var(--ink); }
   #endSub { letter-spacing:.08em; }
@@ -132,23 +175,26 @@
 <div id="danger"></div>
 <div id="hurtfx"></div>
 <div id="flashfx"></div>
+<div id="fade"></div>
 
 <div id="hud" class="hidden">
   <div id="cross"></div>
   <div id="panel">
-    <div id="region"><span id="regionName">THE DEEP WOODS</span><span>III</span></div>
+    <div id="region"><span id="regionName">THE DEEP WOODS</span><span id="regionNum">III</span></div>
     <div class="barRow"><b>♥</b><span id="hpNum">100</span><div class="bar" id="hpBar"><i></i></div></div>
     <div class="barRow" id="oilRow" style="margin-top:9px"><b>🜂</b><span id="oilNum">100</span><div class="bar" id="oilBar"><i></i></div></div>
     <div id="stanceRow">
       <div id="stance"><i class="fl"></i><i class="fl"></i><i class="fl"></i>&nbsp;<span id="stanceName">STEADY</span></div>
       <div id="cds"><div class="cd" id="cdS">S</div><div class="cd" id="cdD">D</div><div class="cd" id="cdF">F</div><div class="cd" id="cdP">P</div></div>
     </div>
+    <div id="coins"></div>
   </div>
   <div id="mapBox"><canvas id="map" width="118" height="118"></canvas><div id="mood">LISTENING</div></div>
-  <div id="card"><div class="n">III</div><div class="t">THE DEEP WOODS</div></div>
+  <div id="card"><div class="n" id="cardNum">III</div><div class="t" id="cardTitle">THE DEEP WOODS</div></div>
   <div id="prompt"></div>
   <div id="hint"></div>
-  <div id="voice"><i class="flame"></i><span id="voiceText"></span></div>
+  <div id="dlg" class="hidden"><div class="who" id="dlgWho"></div><div class="coins" id="dlgCoins"></div><div class="txt" id="dlgTxt"></div><div class="more" id="dlgMore">▼</div><div class="ch" id="dlgCh"></div></div>
+  <div id="voice"><i class="flame"></i><span><b id="voiceWho"></b><span id="voiceText"></span></span></div>
 </div>
 
 <canvas id="xray" width="200" height="200" class="hidden"></canvas>
@@ -156,7 +202,8 @@
 <button id="tricksBtn" class="hidden" aria-expanded="false">TRICKS</button>
 <div id="tricks" class="hidden">
   <h3>RENDERING TRICKS</h3>
-  <label><input type="checkbox" data-k="culling"><span>Only draw what light touches<small>Beam-cone culling (plus braziers and flares). Turn it off to see what it saves.</small></span></label>
+  <label><input type="checkbox" data-k="ring"><span>The original lantern<small>A ring of light all around you, as in the 2D Crown (Dim, Steady and Bright widen the ring), instead of a beam that shines one way. Ash Hollow is lit under an iron sky.</small></span></label>
+  <label><input type="checkbox" data-k="culling"><span>Only draw what light touches<small>Beam-cone culling (plus braziers and flares). In the ruins, nothing behind a wall is drawn either. Turn it off to see what it saves.</small></span></label>
   <label><input type="checkbox" data-k="fog"><span>Black fog at the beam's edge<small>Hides the cut-off, so nothing visibly pops in.</small></span></label>
   <label><input type="checkbox" data-k="shadows"><span>Lantern shadows<small>One shadow map, aimed where you look. Also carries the lens pattern.</small></span></label>
   <label><input type="checkbox" data-k="proxies"><span>Shadow proxies<small>Detailed trees cast their low-poly shadow.</small></span></label>
@@ -184,8 +231,11 @@
   <div class="kicker">HYPERDOT ARCADE</div>
   <h1 class="title">THE HOLLOW CROWN</h1>
   <div class="sub">LANTERN OF THE DEEP</div>
-  <div class="floor">FLOOR III · THE DEEP WOODS · FIRST PERSON</div>
+  <div class="floor">FLOORS I–VI · ASH HOLLOW TO THE HOLLOW THRONE · FIRST PERSON</div>
   <button class="go" id="startBtn">TAKE UP THE LANTERN</button>
+  <button class="go alt" id="diffBtn">DIFFICULTY: STANDARD</button>
+  <button class="go alt" id="ringBtn">LANTERN: A BEAM (ONE DIRECTION)</button>
+  <div class="pickRow"><button class="go alt" id="startBtn4">BEGIN AT FLOOR III · THE DEEP WOODS</button><button class="go alt pick" id="pickBtn" aria-label="another floor">›</button></div>
   <div class="ctrl" id="ctrlText"></div>
 </div>
 
@@ -194,6 +244,18 @@
   <div class="sub" id="endSub"></div>
   <div id="endStats"></div>
   <button class="go" id="againBtn">AGAIN</button>
+  <button class="go alt" id="menuBtn">TITLE</button>
+</div>
+
+<!-- the story's last pages: one paragraph at a time, then what you did, then begin again -->
+<div id="story" class="hidden">
+  <div id="stIn">
+    <h1 class="title" id="stTitle"></h1>
+    <div id="stText"></div>
+    <div id="stStats"></div>
+    <button class="go" id="stBtn">BEGIN AGAIN</button>
+    <div id="stTap">TAP OR PRESS SPACE</div>
+  </div>
 </div>
 
 <script>/*__SCRIPT__*/</script>

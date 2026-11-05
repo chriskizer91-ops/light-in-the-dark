@@ -9,12 +9,14 @@ import { initAudio } from './audio.js';
 export const keys = {};
 const stick = { id: null, ox: 0, oy: 0, vx: 0, vy: 0 };
 const look = { id: null, x: 0, y: 0 };
-export const A = { slash() {}, dash() {}, flare() {}, pulse() {}, mode() {}, setMode() {}, use() {}, tricks() {}, pause() {}, resume() {} }; // filled by main
+export const A = { slash() {}, dash() {}, flare() {}, pulse() {}, mode() {}, setMode() {}, use() {}, tricks() {}, pause() {}, resume() {}, talkKey: null, talkAdvance: null }; // filled by main
 const playing = () => G.state === 'playing';
 
 addEventListener('keydown', (e) => {
   if (e.repeat) { if (e.code === 'Space') e.preventDefault(); return; }
   keys[e.code] = true;
+  if (playing() && /^(Arrow|Page)/.test(e.code)) e.preventDefault();
+  if (G.talk && A.talkKey) { if (e.code !== 'Escape' && e.code !== 'KeyT') e.preventDefault(); A.talkKey(e.code); return; } // a conversation is open
   if (e.code === 'KeyT' && (playing() || G.state === 'menu')) A.tricks();
   if (!playing() || G.paused) return;
   if (e.code === 'Space') { e.preventDefault(); A.slash(); }
@@ -32,7 +34,7 @@ export function tryLock() {
   if (IS_TOUCH || document.pointerLockElement === canvas) return;
   try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* drag-to-look still works */ }
 }
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && playing() && !IS_TOUCH && !G.paused) A.pause(); });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && playing() && !IS_TOUCH && !G.paused && !G.talk) A.pause(); });
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== canvas || !playing() || G.paused) return;
   P.yaw -= e.movementX * 0.0022; P.pitch -= e.movementY * 0.0022;
@@ -41,6 +43,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerdown', (e) => {
   initAudio();
   if (!playing()) return;
+  if (G.talk && A.talkAdvance && e.pointerType === 'mouse' && document.pointerLockElement === canvas) { A.talkAdvance(); return; }
   if (e.pointerType === 'mouse') {
     if (document.pointerLockElement !== canvas) { tryLock(); if (G.paused) A.resume(); look.id = e.pointerId; look.x = e.clientX; look.y = e.clientY; return; }
     if (e.button === 0) A.slash(); else if (e.button === 2) A.flare();
@@ -84,13 +87,23 @@ bindBtn('bPulse', () => A.pulse()); bindBtn('bLight', () => A.mode()); bindBtn('
 
 // ---------- gamepads ----------
 const padPrev = {};
+let keyTurn = 0;
 function pad() { try { for (const p of navigator.getGamepads ? navigator.getGamepads() : []) if (p && p.connected !== false) return p; } catch (e) { /* none */ } return null; }
 
 // returns the move vector (x right, y forward) and applies look from sticks
 export function readMove(dt) {
   let mx = 0, mz = 0;
   if (keys.KeyW || keys.ArrowUp) mz += 1; if (keys.KeyS || keys.ArrowDown) mz -= 1;
-  if (keys.KeyA || keys.ArrowLeft) mx -= 1; if (keys.KeyD || keys.ArrowRight) mx += 1;
+  if (keys.KeyA) mx -= 1; if (keys.KeyD) mx += 1;
+  // ← → turn, easing in and out. Many laptops switch the touchpad off while a key is held (palm rejection),
+  // so walking with WASD and looking with the pad at once can be impossible: the arrows turn instead.
+  if (dt > 0) {
+    const want = playing() && !G.paused && !G.talk ? (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0) : 0;
+    keyTurn += (want - keyTurn) * (1 - Math.exp(-(want ? 9 : 14) * dt));
+    if (Math.abs(keyTurn) < 1e-3) keyTurn = 0;
+    P.yaw -= keyTurn * 2.5 * dt;
+    if (keys.PageUp) P.pitch += 1.4 * dt; if (keys.PageDown) P.pitch -= 1.4 * dt;
+  }
   mx += stick.vx; mz -= stick.vy;
   const gp = pad();
   if (gp && playing() && !G.paused) {

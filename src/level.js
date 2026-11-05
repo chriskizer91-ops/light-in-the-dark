@@ -108,15 +108,22 @@ function roomDimensions(type) {
 
 // the Deep Woods table (2D Crown floor III: bandits, wolves, moths), plus the shade leeches that
 // the Crown sends when you favour bright light — they make the lantern matter
-function pickEnemyType() { const r = rnd(); return r < 0.4 ? 'wolf' : r < 0.62 ? 'moth' : r < 0.8 ? 'leech' : 'bandit'; }
+// Floor IV (the 2D Crown's dl4 table): wax sentinels, leeches, moths, gloom hounds
+function pickEnemyType() {
+  const r = rnd();
+  if (LV.floor === 2) return r < 0.7 ? 'wolf' : 'moth'; // the Gray Forest (2D floor II): wolves, and the moths that drink light
+  if (LV.floor === 4) return r < 0.25 ? 'sentinel' : r < 0.55 ? 'leech' : r < 0.8 ? 'moth' : 'hound';
+  if (LV.floor === 5) { if (r < 0.12) return 'choir'; const q = rnd(); return q < 0.3 ? 'sentinel' : q < 0.55 ? 'hound' : q < 0.8 ? 'leech' : 'moth'; } // the 2D Crown's dl5 table
+  return r < 0.4 ? 'wolf' : r < 0.62 ? 'moth' : r < 0.8 ? 'leech' : 'bandit';
+}
 
 const at = (tx, ty) => ({ x: (tx + 0.5) * TILE, z: (ty + 0.5) * TILE, tx, ty });
 function placeBrazier(tx, ty, lit) { LV.braziers.push({ ...at(tx, ty), lit, radius: lit ? 8 : 0, flicker: rr(0, 6.28), camp: false }); }
 function placePickup(type, tx, ty) { LV.pickups.push({ type, ...at(tx, ty), collected: false, bob: rr(0, 6.28) }); }
 function placeSecret(type, tx, ty) { LV.secrets.push({ type, ...at(tx, ty), revealed: false, found: false }); }
-function addStructure(tx, ty) {
-  if (LV.structures.some((s) => Math.abs(s.tx - tx) < 3 && Math.abs(s.ty - ty) < 3)) return;
-  LV.structures.push({ ...at(tx, ty), r: 0.9 });
+function addStructure(tx, ty, kind = 'elder', extra = {}) {
+  if (LV.structures.some((s) => Math.abs(s.tx - tx) < 3 && Math.abs(s.ty - ty) < 3)) return null;
+  const s = { ...at(tx, ty), r: 0.9, kind, ...extra }; LV.structures.push(s); return s;
 }
 
 function populateRoom(room, isStart, isEnd) {
@@ -143,28 +150,39 @@ function populateRoom(room, isStart, isEnd) {
   }
   if (!isStart && !isEnd && rnd() < 0.45 * def.lootMult) { const p = randomFloorTileInRoom(room); placeSecret('fuel', p.x, p.y); }
   if (!isStart && !isEnd) {
-    const n = rnd() < def.enemyMult * 0.6 ? ri(1, 3) : 0;
+    const n = rnd() < def.enemyMult * (LV.floor === 2 ? 0.45 : 0.6) ? ri(1, LV.floor === 2 ? 2 : 3) : 0;
     for (let i = 0; i < n; i++) {
       const p = randomFloorTileInRoom(room); if (!isOpenArea(p.x, p.y)) continue;
       const w = at(p.x, p.y); if (Math.hypot(w.x - LV.spawn.x, w.z - LV.spawn.z) < TILE * 9) continue;
-      const t = pickEnemyType(); LV.spawns.push({ type: t, x: w.x, z: w.z });
-      if (t === 'wolf' && rnd() < 0.5) LV.spawns.push({ type: 'wolf', x: w.x + rr(-1.5, 1.5), z: w.z + rr(-1.5, 1.5) }); // wolves run in pairs
+      const t = pickEnemyType(); LV.spawns.push({ type: t, x: w.x, z: w.z, face: Math.atan2(c.y - p.y, c.x - p.x) });
+      if (t === 'wolf' && rnd() < (LV.floor === 2 ? 0.35 : 0.5)) LV.spawns.push({ type: 'wolf', x: w.x + rr(-1.5, 1.5), z: w.z + rr(-1.5, 1.5) }); // wolves run in pairs
     }
   }
-  if ((type === 'hall' || type === 'vault') && room.w >= 10 && room.h >= 10 && rnd() < 0.6) {
+  if (LV.floor >= 2 && LV.floor <= 3 && (type === 'hall' || type === 'vault') && room.w >= 10 && room.h >= 10 && rnd() < 0.6) {
     for (let i = 0; i < ri(1, 3); i++) { const p = randomFloorTileInRoom(room); if (isOpenArea(p.x, p.y)) addStructure(p.x, p.y); }
   }
 }
 
-export function generateLevel(seedVal) {
+export function generateLevel(seedVal, floor = 3) {
   srand(seedVal);
-  const w = 78, h = 78;
+  if (floor === 1) generateVillage(seedVal);
+  else if (floor === 4) generateRuins(seedVal);
+  else if (floor === 5) generateRuinsInner(seedVal);
+  else if (floor === 6) generateThrone(seedVal);
+  else generateWoods(seedVal, floor);
+  if (!LV.npcs) LV.npcs = [];
+  if (!LV.trails) LV.trails = [];
+  return LV;
+}
+// Floors II and III: the Gray Forest and the Deep Woods, both the 2D Crown's standard floor read as forest
+function generateWoods(seedVal, floor) {
+  const w = 78, h = 78, gray = floor === 2;
   LV = {
-    w, h, seed: seedVal, name: 'THE DEEP WOODS', numeral: 'III',
+    w, h, seed: seedVal, floor, solid: false, name: gray ? 'THE GRAY FOREST' : 'THE DEEP WOODS', numeral: gray ? 'II' : 'III', story: null, holeTiles: [], npcs: [],
     tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
     rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null,
   };
-  const target = 14, rooms = [];
+  const target = gray ? 12 : 14, rooms = [];
   for (let att = 0; rooms.length < target && att < target * 14; att++) {
     const type = assignRoomType(rooms.length, target), dims = roomDimensions(type);
     const rx = ri(3, w - dims.w - 4), ry = ri(3, h - dims.h - 4);
@@ -194,7 +212,7 @@ export function generateLevel(seedVal) {
     if (!found) carveWindingCorridor(sp.x, sp.y, ep.x, ep.y);
   }
   // the bandit camp: one big clearing off the main path, with a campfire
-  const big = rooms.filter((r, i) => i > 1 && i < rooms.length - 1 && r.w >= 10 && r.h >= 10);
+  const big = gray ? [] : rooms.filter((r, i) => i > 1 && i < rooms.length - 1 && r.w >= 10 && r.h >= 10);
   const campRoom = big.length ? big[ri(0, big.length - 1)] : null;
   for (let i = 0; i < rooms.length; i++) populateRoom(rooms[i], i === 0, i === rooms.length - 1);
   if (campRoom) {
@@ -207,22 +225,385 @@ export function generateLevel(seedVal) {
     const n = ri(2, 3);
     for (let i = 0; i < n; i++) { const a = (i / n) * 6.283 + rr(-0.3, 0.3); LV.spawns.push({ type: 'bandit', x: c.x + Math.cos(a) * 2.6, z: c.z + Math.sin(a) * 2.6, camp: true }); }
     LV.decorations.push({ kind: 'camp', x: c.x, z: c.z });
+    // their leader stands by the fire between two of them, and does the talking when you walk up (the 2D Crown's bandit_encounter)
+    for (const k of [0.5, 1.5, 2.5, 0.25, 0.75]) { const a = (k / n) * 6.283, x = c.x + Math.cos(a) * 2.2, z = c.z + Math.sin(a) * 2.2; if (isWalkable(toTile(x), toTile(z))) { LV.npcs.push({ id: 'leader', x, z, face: a }); LV.campHold = true; break; } }
   }
   // the last fire: a lit brazier in the first clearing, so you start inside a little light
   { const p = roomWalkableCenter(rooms[0]); for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1]]) if (isOpenArea(p.x + dx, p.y + dy)) { placeBrazier(p.x + dx, p.y + dy, true); break; } }
   // guarantee a cache somewhere in the middle of the floor
   { const mid = rooms.filter((_, i) => i > 1 && i < rooms.length - 1); if (mid.length) { const r = mid[ri(0, mid.length - 1)], p = randomFloorTileInRoom(r); placeSecret('fuel', p.x, p.y); } }
-  // wall depth: how many tiles each wall tile is from the nearest clearing or trail (for tree placement)
-  {
-    const D = LV.depth; D.fill(255); const q = [];
-    for (let i = 0; i < w * h; i++) if (LV.tiles[i] === 1) { D[i] = 0; q.push(i); }
-    for (let qi = 0; qi < q.length; qi++) {
-      const ci = q[qi], cx = ci % w, cy = (ci / w) | 0, d = D[ci];
-      if (d >= 7) continue;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = cx + dx, ny = cy + dy; if (!inBounds(nx, ny)) continue; const ni = idx(nx, ny); if (D[ni] > d + 1) { D[ni] = d + 1; q.push(ni); } }
+  // the Gray Forest: a girl hiding in a clearing off the main path (the 2D Crown's second-to-last room)
+  if (gray && rooms.length > 3) {
+    const r = rooms[rooms.length - 2], c = roomWalkableCenter(r), g = at(c.x, c.y);
+    LV.npcs.push({ id: 'girl', x: g.x, z: g.z, face: 0 });
+    LV.spawns = LV.spawns.filter((q) => Math.hypot(q.x - g.x, q.z - g.z) > 9);
+    LV.decorations.push({ kind: 'log', x: g.x - 1.1, z: g.z - 0.9, yaw: rr(0, 6.28) });
+  }
+  computeDepth();
+  computeTrails(rooms.map((r) => roomWalkableCenter(r)), true);
+  return LV;
+}
+// =====================================================================
+//  TRAILS — the worn path through an outdoor floor. A cheapest-path search
+//  over the walkable tiles that prefers the middle of a trail (cost rises
+//  near the trees): the main trail runs from where you start to the way
+//  out, and a fainter branch leaves it for every clearing. World3d lays
+//  packed earth along them; the main one gets marker posts and cairns.
+// =====================================================================
+function trailCosts() {
+  const { w, h } = LV, wd = new Int16Array(w * h).fill(-1), q = [];
+  for (let i = 0; i < w * h; i++) if (LV.tiles[i] !== 1) { wd[i] = 0; q.push(i); }
+  for (let qi = 0; qi < q.length; qi++) { const c = q[qi], cx = c % w, cy = (c / w) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = cx + dx, ny = cy + dy; if (!inBounds(nx, ny)) continue; const n = idx(nx, ny); if (wd[n] < 0) { wd[n] = wd[c] + 1; q.push(n); } } }
+  return wd;
+}
+function dijkstra(sources, wd) {
+  const { w, h } = LV, dist = new Float64Array(w * h).fill(1e9), from = new Int32Array(w * h).fill(-1), heap = [];
+  const push = (d, i) => { heap.push([d, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  for (const i of sources) { dist[i] = 0; push(0, i); }
+  while (heap.length) {
+    const [d, c] = pop(); if (d > dist[c]) continue; const cx = c % w, cy = (c / w) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx, ny = cy + dy; if (!isWalkable(nx, ny)) continue; const n = idx(nx, ny), nd = d + 1 + 2.5 / (1 + wd[n]);
+      if (nd < dist[n]) { dist[n] = nd; from[n] = c; push(nd, n); }
     }
   }
+  return { dist, from };
+}
+const tileToWorld = (i) => [((i % LV.w) + 0.5) * TILE, (((i / LV.w) | 0) + 0.5) * TILE];
+function traceTo(from, i) { const out = []; for (let k = i; k >= 0; k = from[k]) out.push(k); return out; }
+// stops: tile points the trail should reach ({x, y}); the first is the start, the last the way out
+function computeTrails(stops, markers) {
+  const wd = trailCosts(), s0 = idx(toTile(LV.spawn.x), toTile(LV.spawn.z)), e0 = idx(toTile(LV.exit.x), toTile(LV.exit.z));
+  const a = dijkstra([s0], wd); if (a.dist[e0] >= 1e9) return;
+  const main = traceTo(a.from, e0).reverse(), onMain = new Set(main);
+  LV.trails = [{ main: true, pts: main.map(tileToWorld) }];
+  const b = dijkstra(main, wd), done = new Set();
+  for (const st of stops) {
+    const t = idx(st.x, st.y); if (!isWalkable(st.x, st.y) || onMain.has(t) || done.has(t) || b.dist[t] >= 1e9) continue;
+    const path = traceTo(b.from, t).reverse(); if (path.length < 3) continue; // starts on the main trail
+    done.add(t); LV.trails.push({ main: false, pts: path.map(tileToWorld) });
+  }
+  if (!markers) return;
+  // marker posts along the main trail (on its right-hand side, every ~20 m) and a cairn where a branch leaves it
+  let acc = 0;
+  for (let i = 3; i < main.length - 3; i++) {
+    acc += TILE; if (acc < 20) continue;
+    const [x0, z0] = tileToWorld(main[i - 1]), [x1, z1] = tileToWorld(main[i + 1]), dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz) || 1;
+    const [x, z] = tileToWorld(main[i]), px = x - (dz / L) * 1.5, pz = z + (dx / L) * 1.5;
+    if (!isWalkable(toTile(px), toTile(pz))) continue;
+    LV.decorations.push({ kind: 'post', x: px, z: pz, yaw: Math.atan2(dx, dz) }); acc = 0;
+  }
+  for (const tr of LV.trails) if (!tr.main) {
+    const [x, z] = tr.pts[1], [x2, z2] = tr.pts[0], ox = x + (x - x2) * 0.2 + 1.3, oz = z + (z - z2) * 0.2;
+    if (isWalkable(toTile(ox), toTile(oz)) && !LV.decorations.some((d) => Math.hypot(d.x - ox, d.z - oz) < 4)) LV.decorations.push({ kind: 'cairn', x: ox, z: oz, yaw: rr(0, 6.28), small: true });
+  }
+}
+
+// =====================================================================
+//  FLOOR I — ASH HOLLOW. The 2D Crown's village, tile for tile: a central
+//  square with the well and its fire, three houses off it, Farmer Ged's
+//  field to the south, and the eastern gate where Lyn keeps watch. No
+//  enemies; the lantern stays Steady and burns no oil here.
+// =====================================================================
+function generateVillage(seedVal) {
+  const w = 48, h = 48;
+  LV = {
+    w, h, seed: seedVal, floor: 1, solid: false, name: 'ASH HOLLOW', numeral: 'I', story: null, holeTiles: [], npcs: [],
+    tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
+    rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null, village: null,
+  };
+  carveRect(17, 17, 14, 14);                                              // the square
+  carveRect(10, 10, 6, 6); carveWindingCorridor(13, 16, 20, 20);         // NW house (the elder's)
+  carveRect(32, 10, 6, 6); carveWindingCorridor(35, 16, 28, 20);         // NE house
+  carveRect(10, 32, 6, 6); carveWindingCorridor(13, 32, 20, 28);         // SW house
+  carveRect(30, 34, 10, 8); carveWindingCorridor(33, 34, 28, 30);        // Ged's field
+  carveRect(34, 22, 10, 4); carveRect(30, 22, 5, 4);                      // the road to the eastern gate
+  const R = (x, y, rw, rh) => ({ x, y, w: rw, h: rh, roomType: 'hall', shape: 'rect' });
+  const square = R(17, 17, 14, 14), nw = R(10, 10, 6, 6), ne = R(32, 10, 6, 6), sw = R(10, 32, 6, 6), field = R(30, 34, 10, 8);
+  LV.rooms = [square, nw, ne, sw, field];
+  // the houses in the three yards (their back half is the house itself)
+  const houses = [];
+  const house = (x0, y0, tw, td, door) => { for (let y = y0; y < y0 + td; y++) for (let x = x0; x < x0 + tw; x++) setTile(x, y, 0); houses.push({ x: (x0 + tw / 2) * TILE, z: (y0 + td / 2) * TILE, w: tw * TILE, d: td * TILE, door, main: true }); };
+  house(10, 10, 4, 3, 2); house(33, 10, 4, 3, 2); house(10, 35, 4, 3, 3);
+  // more houses facing the square and the gate road, wherever there is a clean 4x3 lot of open ground
+  const lot = (x0, y0, tw, td, door) => {
+    for (let y = y0 - 1; y <= y0 + td; y++) for (let x = x0 - 1; x <= x0 + tw; x++) {
+      if (!inBounds(x, y)) return false;
+      const inLot = x >= x0 && x < x0 + tw && y >= y0 && y < y0 + td, front = (door === 2 && y === y0 + td) || (door === 3 && y === y0 - 1) || (door === 0 && x === x0 + tw) || (door === 1 && x === x0 - 1);
+      if ((inLot || !front) && tileAt(x, y) === 1) return false;
+    }
+    return !houses.some((o) => Math.abs(o.x - (x0 + tw / 2) * TILE) < (o.w + tw * TILE) / 2 + TILE && Math.abs(o.z - (y0 + td / 2) * TILE) < (o.d + td * TILE) / 2 + TILE);
+  };
+  const tryRow = (fixed, from, to, horiz, door) => { for (let k = from; k <= to; k++) { const [x0, y0, tw, td] = horiz ? [k, fixed, 4, 3] : [fixed, k, 3, 4]; if (lot(x0, y0, tw, td, door)) { houses.push({ x: (x0 + tw / 2) * TILE, z: (y0 + td / 2) * TILE, w: tw * TILE, d: td * TILE, door }); k += tw; } } };
+  tryRow(14, 17, 27, true, 2); tryRow(31, 17, 27, true, 3); tryRow(14, 17, 27, false, 0); tryRow(31, 26, 29, false, 1);
+  tryRow(19, 34, 40, true, 2); tryRow(26, 35, 40, true, 3);
+  // the well and its fire, Sev's stall, Ged's cart sunk in the field
+  LV.structures.push({ ...at(24, 23), r: 1.05, kind: 'vwell' });
+  placeBrazier(24, 26, true);
+  const stall = { x: 26.5 * TILE, z: 17.35 * TILE, r: 0.9, kind: 'stall' }; LV.structures.push(stall);
+  const cart = { ...at(36, 38), r: 1.15, kind: 'cart' }; LV.structures.push(cart);
+  LV.spawn = at(24, 28);
+  LV.exit = { ...at(43, 24), found: true, gate: true };
+  LV.npcs.push({ id: 'maren', ...at(22, 20), face: Math.atan2(24 - 20, 24 - 22) });
+  LV.npcs.push({ id: 'sev', ...at(26, 19), face: Math.PI / 2 });
+  LV.npcs.push({ id: 'lyn', ...at(38, 23), face: Math.PI });
+  LV.npcs.push({ id: 'ged', ...at(34, 38), face: 0 });
+  placePickup('health', 20, 24); placePickup('fuel', 28, 24);
+  LV.village = { houses, square, field, stall, cart, gate: { x: 44 * TILE, z0: 22 * TILE, z1: 26 * TILE } };
+  computeDepth();
+  computeTrails([roomWalkableCenter(nw), roomWalkableCenter(ne), roomWalkableCenter(sw), roomWalkableCenter(field), { x: 22, y: 21 }, { x: 26, y: 20 }], false);
   return LV;
+}
+
+// =====================================================================
+//  FLOOR IV — THE EASTERN RUINS (OUTER). The 2D Crown's hand-built layout:
+//  an antechamber, a central hub, then a fork. West: the binding chamber
+//  where Sera is chained. East: the Guardian Hall. Both wings run down to
+//  the exit room. Finish one wing and the other one collapses.
+// =====================================================================
+const rect = (x, y, w, h) => ({ x, y, w, h });
+export const inRect = (r, tx, ty) => tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h;
+// a pillar, statue or fallen drum in the ruins (closer spacing than the woods' elders)
+function addRuin(tx, ty, kind, extra = {}) {
+  if (!isWalkable(tx, ty) || LV.structures.some((s) => Math.abs(s.tx - tx) < 2 && Math.abs(s.ty - ty) < 2)) return null;
+  const s = { ...at(tx, ty), r: 0.62, kind, ...extra }; LV.structures.push(s); return s;
+}
+// wall faces along one side of a rect room: [{tx, ty, dir}] where dir points from the wall tile to the floor
+// (0 +x, 1 -x, 2 +z, 3 -z); only faces with wall on both neighbours, so nothing sits in a doorway
+function sideFaces(r, side) {
+  const out = [];
+  const push = (wx, wy, fx, fy, dir, ax, ay) => { if (tileAt(wx, wy) === 0 && isWalkable(fx, fy) && tileAt(wx - ax, wy - ay) === 0 && tileAt(wx + ax, wy + ay) === 0) out.push({ tx: wx, ty: wy, dir }); };
+  if (side === 'n') for (let x = r.x + 1; x < r.x + r.w - 1; x++) push(x, r.y - 1, x, r.y, 2, 1, 0);
+  if (side === 's') for (let x = r.x + r.w - 2; x > r.x; x--) push(x, r.y + r.h, x, r.y + r.h - 1, 3, 1, 0);
+  if (side === 'e') for (let y = r.y + 1; y < r.y + r.h - 1; y++) push(r.x + r.w, y, r.x + r.w - 1, y, 1, 0, 1);
+  if (side === 'w') for (let y = r.y + r.h - 2; y > r.y; y--) push(r.x - 1, y, r.x, y, 0, 0, 1);
+  return out; // ordered left to right for someone facing that wall
+}
+// n faces spread along the first side that has room for them
+function spreadFaces(r, sides, n, gap) {
+  // first choice: not directly behind a pillar or a statue (you could never see them), well spaced
+  for (const [g, avoid] of [[gap, true], [2, true], [2, false]]) for (const side of sides) {
+    const f = sideFaces(r, side).filter((fc) => !avoid || !LV.structures.some((s) => (fc.dir >= 2 ? s.tx === fc.tx && Math.abs(s.ty - fc.ty) <= 5 : s.ty === fc.ty && Math.abs(s.tx - fc.tx) <= 5)));
+    if (f.length < n) continue;
+    const pick = [], step = Math.max(g, Math.floor(f.length / n)), start = Math.max(0, Math.floor((f.length - step * (n - 1)) / 2));
+    for (let i = 0; i < n; i++) { const k = start + i * step; if (f[k]) pick.push(f[k]); }
+    if (pick.length === n) return pick;
+  }
+  return null;
+}
+function generateRuins(seedVal) {
+  const w = 96, h = 96;
+  LV = {
+    w, h, seed: seedVal, floor: 4, solid: true, name: 'THE EASTERN RUINS', numeral: 'IV',
+    tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
+    rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null, story: {},
+  };
+  // the layout, exactly as the 2D Crown carves it
+  carveRect(44, 4, 8, 8);                                              // entrance antechamber
+  carveRect(40, 16, 16, 10); carveWindingCorridor(48, 12, 48, 16);     // central hub
+  carveRect(38, 26, 4, 8); carveRect(18, 30, 16, 12); carveWindingCorridor(40, 26, 26, 32);   // west: the spirit wing
+  carveRect(10, 46, 14, 12); carveWindingCorridor(18, 42, 16, 46);     // Sera's chamber
+  carveRect(54, 26, 4, 8); carveRect(62, 30, 16, 12); carveWindingCorridor(56, 26, 70, 32);   // east: the guardian wing
+  carveRect(66, 46, 14, 12); carveWindingCorridor(72, 42, 72, 46);     // the Guardian Hall
+  carveRect(38, 70, 20, 10); carveWindingCorridor(16, 58, 44, 70); carveWindingCorridor(72, 58, 52, 70); // both wings run down to the exit
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) setTile(x, y, 0);
+  const R = (x, y, rw, rh, roomType) => ({ x, y, w: rw, h: rh, roomType, shape: 'rect' });
+  const rooms = [R(44, 4, 8, 8, 'antechamber'), R(40, 16, 16, 10, 'hall'), R(18, 30, 16, 12, 'hall'), R(10, 46, 14, 12, 'shrine'), R(62, 30, 16, 12, 'hall'), R(66, 46, 14, 12, 'vault'), R(38, 70, 20, 10, 'hall')];
+  LV.rooms = rooms;
+  LV.spawn = at(48, 8); LV.exit = { x: 49 * TILE, z: 76 * TILE, tx: 49, ty: 76, found: false };
+  LV.holeTiles = [idx(48, 75), idx(49, 75), idx(48, 76), idx(49, 76)];
+  LV.structures.push({ x: LV.exit.x, z: LV.exit.z, tx: 49, ty: 76, r: 1.75, kind: 'well' });
+  const [ante, hub, west1, sera, east1, hall, exitR] = rooms;
+  // the tiles each wing loses when the other is finished: the passage under the hub and the mouth of its lower corridor
+  const collect = (boxes, keep) => {
+    const out = [], seen = new Set();
+    for (const b of boxes) for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) {
+      if (!isWalkable(x, y) || keep.some((r) => inRect(r, x, y)) || seen.has(idx(x, y))) continue; seen.add(idx(x, y)); out.push({ x, y });
+    }
+    return out;
+  };
+  LV.story.branches = {
+    spirit: collect([rect(33, 24, 11, 12), rect(8, 57, 20, 5)], [hub, west1, sera]),
+    guardian: collect([rect(52, 24, 11, 12), rect(62, 57, 21, 5)], [hub, east1, hall]),
+  };
+  LV.story.rooms = { ante, hub, west1, sera, east1, hall, exitR };
+  // ---- statues first (they get their spots), then colonnades ----
+  const statue = (tx, ty, face) => addRuin(tx, ty, 'statue', { r: 0.75, face });
+  statue(41, 20, 0); statue(54, 20, Math.PI); statue(39, 75, 0); statue(56, 75, Math.PI); statue(19, 36, 0); statue(76, 36, Math.PI);
+  const colonnade = (room, ys, xs) => {
+    for (const y of ys) for (const x of xs) {
+      // never on a tile next to a doorway
+      let door = false; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!inRect(room, x + dx, y + dy) && isWalkable(x + dx, y + dy)) door = true;
+      if (door) continue;
+      const broken = rnd() < 0.3, s = addRuin(x, y, broken ? 'stump' : 'pillar', { h: broken ? rr(0.9, 2.1) : 0, v: ri(0, 1) });
+      if (s && broken && rnd() < 0.75) { // its fallen drums lie beside it
+        for (let k = 0, n = ri(1, 2); k < n; k++) {
+          const a = rr(0, TAU_), d = rr(1.3, 1.9), x2 = s.x + Math.cos(a) * d, z2 = s.z + Math.sin(a) * d, tx2 = toTile(x2), ty2 = toTile(z2);
+          if (!inRect(room, tx2, ty2) || !isOpenArea(tx2, ty2) || LV.structures.some((o) => Math.hypot(o.x - x2, o.z - z2) < 1.2)) continue;
+          LV.structures.push({ x: x2, z: z2, tx: tx2, ty: ty2, r: 0.45, kind: 'drum', low: true, yaw: rr(0, TAU_) });
+        }
+      }
+    }
+  };
+  colonnade(hub, [18, 23], [43, 46, 50, 53]);
+  colonnade(exitR, [72, 77], [40, 43, 46, 52, 55]);
+  colonnade(west1, [32, 39], [20, 23, 26, 29, 32]);
+  colonnade(east1, [32, 39], [64, 67, 70, 73, 76]);
+  colonnade(hall, [48, 52, 56], [68]);
+  colonnade(ante, [5], [45, 50]);
+  // ---- the people of this floor ----
+  const sc = { x: Math.floor(sera.x + sera.w / 2), y: Math.floor(sera.y + sera.h / 2) }, gc = { x: Math.floor(hall.x + hall.w / 2), y: Math.floor(hall.y + hall.h / 2) };
+  LV.story.sera = at(sc.x, sc.y);
+  LV.story.merchant = { ...at(46, 8), face: 0 };
+  LV.structures.push({ ...at(46, 8), r: 0.45, kind: 'merchant' });
+  LV.spawns.push({ type: 'guardian', ...at(gc.x, gc.y), face: -Math.PI / 2, guardian: true });
+  placeBrazier(sc.x - 2, sc.y, false); placeBrazier(sc.x + 2, sc.y, false);
+  placeBrazier(gc.x, gc.y - 2, false); placeBrazier(gc.x, gc.y + 2, false);
+  LV.story.seraBraziers = [LV.braziers.length - 4, LV.braziers.length - 3];
+  placeBrazier(50, 8, true);                      // the last fire before the ruins: you start in a little light
+  placePickup('fuel', 46, 10); placePickup('health', 47, 10); // the Gray Merchant's "credit"
+  // murals in the guardian wing (Crown, Light, Shadow, left to right), the three carved symbols in the Hall
+  const mur = spreadFaces(east1, ['n', 's', 'e', 'w'], 3, 3);
+  LV.story.murals = mur ? mur.map((f, i) => ({ ...f, sym: ['crown', 'light', 'shadow'][i] })) : [];
+  const pl = spreadFaces(hall, ['e', 's', 'n', 'w'], 3, 3);
+  const perms = [['light', 'shadow', 'crown'], ['shadow', 'crown', 'light'], ['light', 'crown', 'shadow'], ['shadow', 'light', 'crown'], ['crown', 'shadow', 'light']], order = perms[ri(0, perms.length - 1)];
+  LV.story.plaques = pl ? pl.map((f, i) => ({ ...f, sym: order[i] })) : [];
+  LV.decorations.push({ kind: 'binding', ...at(sc.x, sc.y) });
+  // ---- the rest is populated like any floor ----
+  for (const i of [1, 2, 4, 6]) {
+    const room = rooms[i]; populateRoom(room, false, i === 6);
+    // the ruins are bigger and emptier than the woods: every hall holds at least two things
+    const inside = () => LV.spawns.filter((sp) => inRect(room, toTile(sp.x), toTile(sp.z))).length;
+    for (let tries = 0; inside() < 2 && tries < 30; tries++) {
+      const p = randomFloorTileInRoom(room); if (!isOpenArea(p.x, p.y) || LV.structures.some((o) => o.tx === p.x && o.ty === p.y)) continue;
+      const c = roomWalkableCenter(room); LV.spawns.push({ type: pickEnemyType(), ...at(p.x, p.y), face: Math.atan2(c.y - p.y, c.x - p.x) });
+    }
+  }
+  { const p = randomFloorTileInRoom(west1); placeSecret('fuel', p.x, p.y); } // the relic cache in the spirit wing
+  // nothing may sit in or right beside the stairwell
+  const clear = (o) => Math.hypot(o.x - LV.exit.x, o.z - LV.exit.z) > 3.2;
+  LV.pickups = LV.pickups.filter(clear); LV.secrets = LV.secrets.filter(clear); LV.spawns = LV.spawns.filter(clear); LV.braziers = LV.braziers.filter(clear);
+  computeDepth();
+  return LV;
+}
+
+// =====================================================================
+//  FLOOR VI — THE HOLLOW THRONE (the 2D Crown's generateThroneFloor, at
+//  three quarters of its size): a short approach, a round throne room ringed
+//  with pillars, three alcoves with braziers and supplies, and the King.
+//  No way down: this is where it ends. The door seals if you fight him.
+// =====================================================================
+function generateThrone(seedVal) {
+  const w = 60, h = 60, cx = 30, cy = 34;
+  LV = {
+    w, h, seed: seedVal, floor: 6, solid: true, name: 'THE HOLLOW THRONE', numeral: 'VI', holeTiles: [], npcs: [],
+    tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
+    rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null, story: { murals: [], plaques: [] },
+  };
+  carveRect(27, 3, 6, 5); carveCircle(30, 11, 4); carveRect(28, 14, 4, 9);   // the approach
+  carveCircle(cx, cy, 12);                                                    // the throne room
+  carveEllipse(15, cy, 4, 3); carveRect(17, cy - 2, 3, 4);                    // west alcove
+  carveEllipse(45, cy, 4, 3); carveRect(41, cy - 2, 3, 4);                    // east alcove
+  carveEllipse(cx, 50, 3, 4); carveRect(cx - 2, 45, 4, 3);                    // south alcove
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) setTile(x, y, 0);
+  const R = (x, y, rw, rh, roomType) => ({ x, y, w: rw, h: rh, roomType, shape: 'rect' });
+  LV.rooms = [R(27, 3, 6, 5, 'antechamber'), R(cx - 12, cy - 12, 24, 24, 'hall'), R(11, cy - 3, 8, 6, 'shrine'), R(41, cy - 3, 8, 6, 'shrine'), R(cx - 3, 46, 6, 8, 'shrine')];
+  LV.spawn = at(30, 5);
+  LV.exit = { x: -1000, z: -1000, tx: -500, ty: -500, found: false, none: true }; // there is no further down
+  // six pillars in a ring (none in the line of the door), the throne on its dais at the far side
+  for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; addRuin(Math.round(cx + Math.cos(a) * 8.5), Math.round(cy + Math.sin(a) * 8.5), 'pillar', { v: k % 2 }); }
+  const throne = at(cx, cy + 7); LV.structures.push({ ...throne, r: 2.0, kind: 'throne', face: -Math.PI / 2 });
+  LV.story.throne = { ...at(cx, cy), seat: throne, door: [[28, 21], [29, 21], [30, 21], [31, 21], [28, 22], [29, 22], [30, 22], [31, 22]],
+    alcoves: [[[16, cy - 1], [17, cy - 1], [17, cy], [16, cy], [17, cy + 1], [16, cy + 1]], [[42, cy - 1], [43, cy - 1], [42, cy], [43, cy], [42, cy + 1], [43, cy + 1]], [[cx - 1, 46], [cx, 46], [cx - 1, 47], [cx, 47]]] };
+  LV.npcs.push({ id: 'king', ...at(cx, cy + 3), face: -Math.PI / 2 });
+  // fire: two at the approach, the alcoves' braziers wait to be lit; oil and tonics in the alcoves, a cache on the way in
+  placeBrazier(28, 9, true); placeBrazier(32, 9, true);
+  placeBrazier(15, cy, false); placeBrazier(45, cy, false); placeBrazier(cx, 50, false); placeBrazier(cx, 16, false);
+  placePickup('fuel', 14, cy + 2); placePickup('health', 46, cy + 2); placePickup('fuel', cx - 1, 51); placePickup('health', cx + 1, 51);
+  placeSecret('fuel', 30, 12);
+  computeDepth();
+  return LV;
+}
+
+// =====================================================================
+//  FLOOR V — THE INNER RUINS (the 2D Crown's generateRuinsInner): the
+//  standard floor's halls and passages, deeper, under the same carved
+//  stone as Floor IV; the Resonance Choir sings among the others, and in a
+//  great hall near the end waits Aldric's captain, the wraith.
+// =====================================================================
+function generateRuinsInner(seedVal) {
+  const w = 86, h = 86;
+  LV = {
+    w, h, seed: seedVal, floor: 5, solid: true, name: 'THE INNER RUINS', numeral: 'V', holeTiles: [], npcs: [],
+    tiles: new Uint8Array(w * h), depth: new Uint8Array(w * h), discovered: new Uint8Array(w * h), visible: new Uint8Array(w * h),
+    rooms: [], braziers: [], pickups: [], secrets: [], structures: [], decorations: [], spawns: [], spawn: null, exit: null, camp: null, story: { murals: [], plaques: [] },
+  };
+  const target = 13, rooms = [];
+  for (let att = 0; rooms.length < target && att < target * 30; att++) {
+    const great = rooms.length === target - 3; // the wraith's hall: the largest
+    const rw = great ? ri(14, 16) : ri(8, 14), rh = great ? ri(12, 14) : ri(8, 12), rx = ri(3, w - rw - 4), ry = ri(3, h - rh - 4);
+    if (overlapsRoom(rx, ry, rw, rh, rooms, 3)) continue;
+    const room = { x: rx, y: ry, w: rw, h: rh, shape: 'rect', roomType: great ? 'hall' : ['hall', 'vault', 'crypt', 'hall', 'gallery'][ri(0, 4)] };
+    carveRect(rx, ry, rw, rh);
+    if (rooms.length) { const a = roomWalkableCenter(rooms[rooms.length - 1]), b = roomWalkableCenter(room); carveWindingCorridor(a.x, a.y, b.x, b.y); }
+    rooms.push(room);
+  }
+  for (let i = 0; i < 2; i++) { const a = rooms[ri(1, rooms.length - 4)], b = rooms[ri(1, rooms.length - 4)]; if (a !== b) { const ac = roomWalkableCenter(a), bc = roomWalkableCenter(b); carveWindingCorridor(ac.x, ac.y, bc.x, bc.y); } }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) setTile(x, y, 0);
+  LV.rooms = rooms;
+  const first = rooms[0], last = rooms[rooms.length - 1], sp = roomWalkableCenter(first), ec = { x: last.x + Math.floor(last.w / 2), y: last.y + Math.floor(last.h / 2) };
+  LV.spawn = at(sp.x, sp.y);
+  // the way down: a stairwell in the last hall, like the Eastern Ruins'
+  LV.exit = { x: ec.x * TILE, z: ec.y * TILE, tx: ec.x, ty: ec.y, found: false };
+  LV.holeTiles = [idx(ec.x - 1, ec.y - 1), idx(ec.x, ec.y - 1), idx(ec.x - 1, ec.y), idx(ec.x, ec.y)];
+  LV.structures.push({ x: LV.exit.x, z: LV.exit.z, tx: ec.x, ty: ec.y, r: 1.75, kind: 'well' });
+  // the wraith's hall
+  const wr = rooms[rooms.length - 3], wc = roomWalkableCenter(wr);
+  LV.story.wraith = { ...at(wc.x, wc.y), room: wr };
+  // columns down the long sides of the bigger halls, a statue or two
+  const colonnade = (room) => {
+    const ys = [room.y + 2, room.y + room.h - 3];
+    for (const y of ys) for (let x = room.x + 2; x < room.x + room.w - 2; x += 3) {
+      let door = false; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!inRect(room, x + dx, y + dy) && isWalkable(x + dx, y + dy)) door = true;
+      if (door) continue;
+      const broken = rnd() < 0.35; addRuin(x, y, broken ? 'stump' : 'pillar', { h: broken ? rr(0.9, 2.1) : 0, v: ri(0, 1) });
+    }
+  };
+  rooms.forEach((r, i) => { if (i > 0 && r !== last && r.w >= 10 && r.h >= 9 && (r === wr || rnd() < 0.6)) colonnade(r); });
+  for (const r of rooms.slice(2, -1)) if (rnd() < 0.35 && r !== wr) { const c = roomWalkableCenter(r); addRuin(c.x, r.y + 1, 'statue', { r: 0.75, face: Math.PI / 2 }); }
+  // fire, oil, tonics, caches, and what lives here (none in the wraith's hall: he keeps it)
+  { for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) if (isOpenArea(sp.x + dx, sp.y + dy)) { placeBrazier(sp.x + dx, sp.y + dy, true); break; } }
+  rooms.forEach((room, i) => {
+    if (i === 0) return;
+    if (rnd() < 0.5 || room === wr) { const p = randomFloorTileInRoom(room); if (isOpenArea(p.x, p.y)) placeBrazier(p.x, p.y, false); }
+    for (let k = 0, n = rnd() < 0.4 ? 2 : 1; k < n; k++) if (rnd() < 0.6) { const p = randomFloorTileInRoom(room); placePickup(rnd() < 0.65 ? 'fuel' : 'health', p.x, p.y); }
+    if (room !== last && rnd() < 0.35) { const p = randomFloorTileInRoom(room); placeSecret('fuel', p.x, p.y); }
+    if (room === wr || room === last) return;
+    const c = roomWalkableCenter(room);
+    for (let k = 0, n = ri(1, 3); k < n; k++) {
+      const p = randomFloorTileInRoom(room); if (!isOpenArea(p.x, p.y)) continue;
+      const q = at(p.x, p.y); if (Math.hypot(q.x - LV.spawn.x, q.z - LV.spawn.z) < TILE * 9) continue;
+      LV.spawns.push({ type: pickEnemyType(), ...q, face: Math.atan2(c.y - p.y, c.x - p.x) });
+    }
+  });
+  const clear = (o) => Math.hypot(o.x - LV.exit.x, o.z - LV.exit.z) > 3.2;
+  LV.pickups = LV.pickups.filter(clear); LV.secrets = LV.secrets.filter(clear); LV.spawns = LV.spawns.filter(clear); LV.braziers = LV.braziers.filter(clear);
+  LV.structures = LV.structures.filter((o) => o.kind === 'well' || clear(o));
+  computeDepth();
+  return LV;
+}
+const TAU_ = Math.PI * 2;
+
+// wall depth: how many tiles each wall tile is from the nearest clearing or trail (for tree placement)
+export function computeDepth() {
+  const w = LV.w, h = LV.h, D = LV.depth; D.fill(255); const q = [];
+  for (let i = 0; i < w * h; i++) if (LV.tiles[i] === 1) { D[i] = 0; q.push(i); }
+  for (let qi = 0; qi < q.length; qi++) {
+    const ci = q[qi], cx = ci % w, cy = (ci / w) | 0, d = D[ci];
+    if (d >= 7) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = cx + dx, ny = cy + dy; if (!inBounds(nx, ny)) continue; const ni = idx(nx, ny); if (D[ni] > d + 1) { D[ni] = d + 1; q.push(ni); } }
+  }
 }
 
 // =====================================================================
@@ -253,7 +634,7 @@ export function lineOfSight(x1, z1, x2, z2) {
   for (let i = 1; i < steps; i++) {
     const t = i / steps, x = x1 + (x2 - x1) * t, z = z1 + (z2 - z1) * t;
     if (tileAt(Math.floor(x / TILE), Math.floor(z / TILE)) === 0) return false;
-    for (const s of LV.structures) { const dx = x - s.x, dz = z - s.z; if (dx * dx + dz * dz < 0.64) return false; }
+    for (const s of LV.structures) { if (s.low) continue; const dx = x - s.x, dz = z - s.z, rr2 = Math.min(0.64, s.r * s.r * 0.8); if (dx * dx + dz * dz < rr2) return false; }
   }
   return true;
 }

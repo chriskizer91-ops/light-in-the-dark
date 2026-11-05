@@ -1,4 +1,4 @@
-import { THREE, scene, camera, canvasTex, glowTex, GeoBuilder, T, M, col, clamp, lerp, smooth, damp, mr, settings } from './engine.js';
+import { ash, THREE, scene, camera, canvasTex, glowTex, GeoBuilder, T, M, col, clamp, lerp, smooth, damp, mr, settings } from './engine.js';
 
 // =====================================================================
 //  THE LANTERN — a bullseye lantern ("dark lantern"): one glass lens in
@@ -18,9 +18,9 @@ import { THREE, scene, camera, canvasTex, glowTex, GeoBuilder, T, M, col, clamp,
 // =====================================================================
 
 export const MODES = [
-  { key: 'dim', name: 'DIM', mood: 'Hushed', angle: 0.2, penumbra: 0.6, distance: 14, intensity: 40, drain: 0.15, stealth: 0.84, vent: 0.5, level: 0.52 },
-  { key: 'steady', name: 'STEADY', mood: 'Listening', angle: 0.34, penumbra: 0.5, distance: 22, intensity: 82, drain: 0.32, stealth: 1.0, vent: 0.85, level: 0.78 },
-  { key: 'bright', name: 'BRIGHT', mood: 'Hungry', angle: 0.54, penumbra: 0.42, distance: 31, intensity: 138, drain: 0.8, stealth: 1.22, vent: 1.25, level: 1.04 },
+  { key: 'dim', name: 'DIM', mood: 'Hushed', angle: 0.3, penumbra: 0.6, distance: 14, intensity: 40, ringR: 7.8, ringI: 26, drain: 0.15, stealth: 0.84, vent: 0.5, level: 0.52 },
+  { key: 'steady', name: 'STEADY', mood: 'Listening', angle: 0.5, penumbra: 0.48, distance: 22, intensity: 82, ringR: 10.9, ringI: 40, drain: 0.32, stealth: 1.0, vent: 0.85, level: 0.78 },
+  { key: 'bright', name: 'BRIGHT', mood: 'Hungry', angle: 0.72, penumbra: 0.4, distance: 31, intensity: 138, ringR: 15, ringI: 62, drain: 0.8, stealth: 1.22, vent: 1.25, level: 1.04 },
 ];
 export const NEAR_R = 3.0; // spill: the lantern's vents leak a little light all around you
 
@@ -31,18 +31,12 @@ export const lantern = {
   flickT: 0, nextFlicker: 20, shutter: 0, swing: 0, swingDir: 1, light: null, vent: null,
 };
 
-// The cookie: what a bullseye lens throws — a hot centre, the lens's stepped rings, a soft edge.
+// The cookie: a smooth cone of light, a soft hot centre that falls off evenly to a feathered edge (no lens rings)
 const cookieTex = canvasTex(256, (g, s) => {
   g.fillStyle = '#000'; g.fillRect(0, 0, s, s);
   const c = s / 2, gr = g.createRadialGradient(c, c, 0, c, c, c);
-  [[0, '#fff6e6'], [0.1, '#fff1dc'], [0.2, '#f2e2c6'], [0.27, '#b8a88c'], [0.31, '#e4d4b8'], [0.42, '#cdbda2'], [0.47, '#9a8c74'],
-   [0.53, '#c4b498'], [0.68, '#8e8270'], [0.86, '#3e3a32'], [1, '#000000']].forEach(([o, cc]) => gr.addColorStop(o, cc));
+  for (let i = 0; i <= 24; i++) { const t = i / 24, k = Math.pow(Math.cos(Math.min(1, t / 0.98) * Math.PI / 2), 1.6); gr.addColorStop(t, `rgb(${Math.round(255 * k)},${Math.round(246 * k)},${Math.round(232 * k)})`); }
   g.fillStyle = gr; g.beginPath(); g.arc(c, c, c, 0, Math.PI * 2); g.fill();
-  for (let i = 0; i < 40; i++) { // soot and smudges on the glass
-    const a = Math.random() * 6.283, r = Math.random() * c * 0.8;
-    g.fillStyle = `rgba(0,0,0,${0.04 + Math.random() * 0.08})`;
-    g.beginPath(); g.arc(c + Math.cos(a) * r, c + Math.sin(a) * r, 2 + Math.random() * 9, 0, 6.283); g.fill();
-  }
 });
 
 // held-item materials ignore fog (they are always half a metre away)
@@ -67,6 +61,15 @@ export function createLantern() {
   const _um = light.shadow.updateMatrices.bind(light.shadow);
   light.shadow.updateMatrices = (l, vp) => { camera.layers.enable(1); _um(l, vp); };
   lantern.light = light;
+
+  // THE ORIGINAL LANTERN (settings.ring): the 2D Crown's lantern lights a ring all around you. A point light at the
+  // lantern, its reach the ring's radius; the beam's spotlight goes dark. Shadows: a cube map, only when ring is on.
+  const ring = new THREE.PointLight(0xffe2b8, 0, MODES[1].ringR, 0.8);
+  ring.shadow.mapSize.set(matchMedia('(pointer: coarse)').matches ? 256 : 512, matchMedia('(pointer: coarse)').matches ? 256 : 512);
+  ring.shadow.bias = -0.002; ring.shadow.normalBias = 0.04; ring.shadow.camera.near = 0.15;
+  const _rm = ring.shadow.updateMatrices.bind(ring.shadow);
+  ring.shadow.updateMatrices = (l, vi) => { camera.layers.enable(1); _rm(l, vi); };
+  scene.add(ring); lantern.ringLight = ring;
 
   // the vents: a dim warm glow all around, so your hands and feet are never in total darkness
   const vent = new THREE.PointLight(0xffa850, 0.9, 5.5, 2);
@@ -118,7 +121,7 @@ function buildViewModels() {
   hb.add(T.ico, M(0.0, -0.04, 0.0, 0, 0, 0, 0.045, 0.06, 0.05), leather, 0.15); // glove
   hb.limb(T.cyl6, 0.04, -0.08, 0.03, 0.42, 0.045, 2.3, -0.5, cloth, 0.12);     // sleeve
   // steel gets its own shiny material, so the lantern's warm light reads as a highlight, not as wood
-  const steelMat = new THREE.MeshPhongMaterial({ color: 0xa8b0b8, emissive: 0x23262b, specular: 0xfff0d8, shininess: 60, fog: false, vertexColors: true });
+  const steelMat = (view.steelMat = new THREE.MeshPhongMaterial({ color: 0xa8b0b8, emissive: 0x23262b, specular: 0xfff0d8, shininess: 60, fog: false, vertexColors: true }));
   const blade = new THREE.Group(); blade.add(new THREE.Mesh(hb.build(), matView), new THREE.Mesh(stb.build(), steelMat));
   blade.scale.setScalar(0.62);
   const pivot = new THREE.Group(); pivot.add(blade);
@@ -139,8 +142,9 @@ export function swingBlade(dir = 1) { lantern.swing = 1; lantern.swingDir = dir;
 const _v = new THREE.Vector3(), _lensLocal = new THREE.Vector3(-0.3, -0.36, -0.66), _ventLocal = new THREE.Vector3(0.02, -0.1, -0.26);
 // ctx: { on, fuel, maxFuel, dt, moving, bob, menu, hurt }
 export function updateLantern(dt, ctx) {
-  const B = MODES[lantern.mode], k = damp(9, dt);
-  lantern.angle = lerp(lantern.angle, B.angle, k); lantern.distance = lerp(lantern.distance, B.distance, k);
+  const B = MODES[lantern.mode], k = damp(9, dt), ring = (lantern.ring = !!settings.ring);
+  lantern.angle = lerp(lantern.angle, B.angle, k); lantern.distance = lerp(lantern.distance, ring ? B.ringR * (1 + (lantern.mode === 2 ? (ctx.brightBonus || 0) * 0.35 : 0)) : B.distance, k);
+  lantern.ringI = lerp(lantern.ringI || B.ringI, B.ringI, k);
   lantern.intensity = lerp(lantern.intensity, B.intensity, k); lantern.penumbra = lerp(lantern.penumbra, B.penumbra, k);
   // a flame, not a bulb: it breathes, and it gutters when the oil is low
   lantern.nextFlicker -= dt;
@@ -155,9 +159,12 @@ export function updateLantern(dt, ctx) {
   lantern.k = (ctx.on ? 1 : 0) * flick * oil;
   lantern.shutter = Math.max(0, lantern.shutter - dt * 5);
   const L = lantern.light;
-  L.intensity = lantern.intensity * lantern.k * (1 - lantern.shutter * 0.7);
+  L.intensity = ring ? 0 : lantern.intensity * lantern.k * (1 - lantern.shutter * 0.7);
   L.angle = lantern.angle; L.distance = lantern.distance; L.penumbra = lantern.penumbra;
-  L.castShadow = settings.shadows;
+  L.castShadow = settings.shadows && !ring;
+  // the ring light sits a hand's width from what you hold: keep your own hands and blade from blowing out to white
+  matView.color.setScalar(ring ? 0.3 : 1); if (view.steelMat) { view.steelMat.color.setHex(ring ? 0x2c2f33 : 0xa8b0b8); view.steelMat.specular.setHex(ring ? 0x3a3630 : 0xfff0d8); }
+  const RL = lantern.ringLight; RL.intensity = ring ? lantern.ringI * lantern.k * (1 - lantern.shutter * 0.5) : 0; RL.distance = lantern.distance + 0.5; RL.castShadow = settings.shadows && ring; RL.shadow.camera.far = lantern.distance + 1;
   lantern.vent.intensity = 0.55 * B.vent * lantern.k * (ctx.menu ? 0.6 : 1);
 
   // the held lantern sways with your steps and swings a little behind your view
@@ -181,7 +188,9 @@ export function updateLantern(dt, ctx) {
   _v.copy(_lensLocal); camera.localToWorld(_v); lantern.pos.copy(_v);
   camera.getWorldDirection(lantern.fwd);
   lantern.dir.lerp(lantern.fwd, damp(ctx.menu ? 4 : 13, dt)).normalize();
-  L.position.copy(lantern.pos);
+  L.position.copy(lantern.pos); lantern.ringLight.position.copy(lantern.pos);
+  ash.uLampPos.value.copy(lantern.pos); ash.uLampDir.value.copy(lantern.dir);
+  if (lantern.ring) ash.uLampCos.value.set(-3, -2); else ash.uLampCos.value.set(Math.cos(lantern.angle * 1.15), Math.cos(lantern.angle * 0.6)); ash.uLampDist.value = lantern.distance * Math.min(1, lantern.k + 0.15);
   L.target.position.copy(lantern.pos).addScaledVector(lantern.dir, 10); L.target.updateMatrixWorld();
   _v.copy(_ventLocal); camera.localToWorld(_v); lantern.vent.position.copy(_v); // just behind the lantern, so it lights the side you see
 }
@@ -190,7 +199,7 @@ export function updateLantern(dt, ctx) {
 const _br = { d: 0, ang: 0 };
 export function beamAt(x, y, z) {
   const p = camera.position, dx = x - p.x, dy = y - p.y, dz = z - p.z, d = Math.hypot(dx, dy, dz) || 0.001, D = lantern.dir;
-  _br.d = d; _br.ang = Math.acos(clamp((dx * D.x + dy * D.y + dz * D.z) / d, -1, 1));
+  _br.d = d; _br.ang = lantern.ring ? 0 : Math.acos(clamp((dx * D.x + dy * D.y + dz * D.z) / d, -1, 1)); // a ring has no direction
   return _br;
 }
 // how hard an eye (or a bottle, or a blade) at this spot shines back, 0..1 — line of sight is the caller's job
@@ -201,6 +210,7 @@ export function glint(d, ang) {
 export function lanternLevel(x, y, z) {
   const B = MODES[lantern.mode], r = beamAt(x, y, z), kk = Math.min(1, lantern.k);
   let lv = 0;
+  if (lantern.ring) return r.d < lantern.distance ? B.level * (1 - r.d / lantern.distance) * kk : 0; // the 2D Crown: intensity x (1 - d / radius)
   if (r.ang < lantern.angle * 1.3 && r.d < lantern.distance) lv = B.level * smooth(lantern.angle * 1.3, lantern.angle * 0.55, r.ang) * Math.pow(1 - r.d / lantern.distance, 0.6);
   if (r.d < NEAR_R) lv = Math.max(lv, 0.3 * B.vent * (1 - r.d / NEAR_R));
   return lv * kk;
@@ -210,9 +220,16 @@ export function inBeam(cx, cy, cz, r, margin = 0.06, extra = 6) {
   const p = camera.position, dx = cx - p.x, dy = cy - p.y, dz = cz - p.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
   if (d < NEAR_R + r) return true;
   if (lantern.k < 0.02 || d - r > lantern.distance + extra) return false;
+  if (lantern.ring) return d - r < lantern.distance + Math.min(extra, 2);
   const allow = lantern.angle + margin + Math.asin(Math.min(1, r / d));
   if (allow >= Math.PI) return true;
   const D = lantern.dir;
   return (dx * D.x + dy * D.y + dz * D.z) / d > Math.cos(allow);
+}
+// is the lantern turned on this spot? (the carved signs answer to it) Beam: point it there. Ring: stand at it, facing it.
+export function aimedAt(x, y, z, far, tight) {
+  const r = beamAt(x, y, z);
+  if (!lantern.ring) return r.d < far && r.ang < Math.max(0.07, tight / r.d);
+  const p = camera.position, D = lantern.fwd; return r.d < 3.4 && ((x - p.x) * D.x + (z - p.z) * D.z) / Math.max(0.01, Math.hypot(x - p.x, z - p.z)) > 0.55;
 }
 export function showViewModels(on) { if (view.root) view.root.visible = on; }
